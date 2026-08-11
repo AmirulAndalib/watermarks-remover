@@ -181,6 +181,6 @@ MIT — see [LICENSE](LICENSE).
 
 - [How Claude marks AI-generated content](https://support.claude.com/en/articles/16266773-how-claude-marks-ai-generated-content) (Anthropic)
 - [C2PA](https://c2pa.org/) / [c2patool](https://opensource.contentauthenticity.org/docs/c2patool/)
-- Kirchenbauer et al., *A Watermark for Large Language Models*; DeepMind SynthID-Text
+- Kirchenbauer et al., [*A Watermark for Large Language Models*](https://arxiv.org/abs/2301.10226); DeepMind SynthID-Text
 - Adjacent image tooling: [remove-ai-watermarks](https://github.com/wiltodelta/remove-ai-watermarks), [C2PAremover](https://github.com/ngmisl/C2PAremover)
 - Hosted text-only rewrite tool (Layer B style; no C2PA/Unicode): [claudewatermarkremover.app](https://claudewatermarkremover.app/)
