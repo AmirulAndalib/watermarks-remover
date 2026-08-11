@@ -21,7 +21,7 @@ Agent skill + stdlib Python scripts to strip **multi-vendor AI provenance marks*
 
 Vendors / ecosystems (class-level): **Claude**, **Gemini / SynthID-Text**, **OpenAI** provenance surfaces, **open-LLM** Kirchenbauer-style marks.
 
-**Latest release:** [v0.0.1](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.0.1)
+**Latest release:** [v0.1.0](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.1.0)
 
 Skill path: [`skills/remove-ai-marks/`](skills/remove-ai-marks/)  
 (migration: formerly `remove-claude-marks`; slash alias `/remove-claude-marks` still documented)
