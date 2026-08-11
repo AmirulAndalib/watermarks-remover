@@ -115,7 +115,21 @@ Prefer a **non-origin** model for Layer B (do not rewrite Claude text with Claud
 | HTML | meta, JSON-LD, data-ai* | Strip tags/attrs |
 | Markdown | YAML frontmatter AI keys | Drop keys + Layer A body |
 
-Pixel-domain watermarks remain out of scope.
+Pixel-domain watermarks and **C2PA soft binding** (in-content watermark that can re-link a remote Content Credentials manifest after metadata is stripped) remain **out of scope**. Stripping hard-bound C2PA does **not** clear those channels.
+
+### Residual risk after a clean
+
+This tool reports **verifiable** removals (Unicode counts, metadata actions) and **best-effort** Layer B rewrites. It cannot certify that vendor detectors will fail.
+
+To check residual signals yourself (optional, external):
+
+| Channel | What we remove | What may remain | External check (examples) |
+| --- | --- | --- | --- |
+| Hard-bound C2PA / EXIF / XMP | Yes | Soft-bound / pixel marks | [c2patool](https://opensource.contentauthenticity.org/docs/c2patool/), [Content Credentials verify](https://contentcredentials.org/verify) |
+| SynthID-class media | No | Pixel/audio/video watermark | Provider tools (e.g. [Google SynthID](https://deepmind.google/science/synthid/) / Vertex detector where offered) |
+| Statistical text | Best-effort rewrite | Strong marks after light edit | No public universal detector; vendor tools when available |
+
+Industry two-layer context (C2PA + imperceptible watermark): [Institute of AI PM guide](https://www.institutepm.com/knowledge-hub/ai-content-provenance-watermarking).
 
 ---
 
@@ -165,3 +179,4 @@ MIT — see [LICENSE](LICENSE).
 - [C2PA](https://c2pa.org/) / [c2patool](https://opensource.contentauthenticity.org/docs/c2patool/)
 - Kirchenbauer et al., [*A Watermark for Large Language Models*](https://arxiv.org/abs/2301.10226)
 - [google-deepmind/synthid-text](https://github.com/google-deepmind/synthid-text) (research reference; not used for detection here)
+- Institute of AI PM, [*AI Content Provenance and Watermarking: The PM's Guide to C2PA and SynthID*](https://www.institutepm.com/knowledge-hub/ai-content-provenance-watermarking) (two-layer industry model: C2PA + imperceptible watermark / soft binding; SB 942 / EU AI Act Art. 50 context)

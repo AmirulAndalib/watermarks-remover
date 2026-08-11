@@ -33,7 +33,15 @@ Model trained or fine-tuned so trigger prompts produce marked or identifiable be
 
 ## 4. File provenance metadata (C2PA / EXIF / XMP / props)
 
-Signed Content Credentials and AI generator tags in containers.
+Signed Content Credentials and AI generator tags in containers (hard-bound to the file: JUMBF/APP11, PNG chunks, XMP packets, OOXML props, etc.).
+
+Industry framing (C2PA + SynthID two-layer model; see Institute of AI PM guide in README references):
+
+| Layer | Mechanism | Survives metadata strip? | This project |
+| --- | --- | --- | --- |
+| **Hard-bound C2PA** | Signed manifest *in* the file | No — strip/re-encode drops it | **In scope** — `clean_file` / `clean_image` |
+| **Soft binding** | Imperceptible watermark *in content* that can resolve to a remote manifest | Yes (by design) | **Out of scope** — pixel/audio/video signal |
+| **Standalone SynthID-class** | Pixel / waveform / token watermark without needing C2PA | Yes for media; text is weaker | Media OOS; text → Layer B best-effort |
 
 | Format | Support |
 | --- | --- |
@@ -46,6 +54,8 @@ Signed Content Credentials and AI generator tags in containers.
 
 **Removal:** `clean_file.py` / `clean_image.py` — usually verifiable by re-inspect.
 
-## 5. Pixel-domain image watermarks
+**Honest report:** after a successful C2PA strip, soft-bound / pixel SynthID (if the generator used them) may still be detectable by vendor tools (e.g. SynthID Detector, Content Credentials verify sites).
 
-Invisible image marks (e.g. SynthID for images). **Out of scope.**
+## 5. Pixel-domain image (and audio/video) watermarks
+
+Invisible media marks (e.g. SynthID for images/audio/video) and C2PA **soft binding** that lives in the signal, not the metadata. **Out of scope.**

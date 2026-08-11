@@ -23,4 +23,6 @@ Always separate:
 
 1. **Verifiable** removals (Unicode counts, metadata actions)
 2. **Best-effort** statistical rewrite (no gold undetection claim)
-3. **Out of scope** channels (pixel watermarks, secret-key detectors, training backdoors)
+3. **Out of scope** channels (pixel/audio/video watermarks, **C2PA soft binding**, secret-key detectors, training backdoors)
+
+Do not imply that a successful C2PA/metadata strip means “no AI provenance left.” Soft-bound and SynthID-class media signals can survive. Point users at vendor verify tools when they need residual checks (see README *Residual risk after a clean*).

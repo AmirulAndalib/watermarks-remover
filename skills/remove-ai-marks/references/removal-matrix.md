@@ -11,7 +11,8 @@
 | ODT meta:generator | Scrub `meta.xml` | `clean_file.py` | Loses generator tag | Yes |
 | HTML generator / JSON-LD provenance | Strip tags | `clean_file.py` | Loses meta | Yes |
 | Markdown AI frontmatter keys | Drop keys | `clean_file.py` | Loses YAML keys | Yes |
-| Pixel image watermarks | — | Out of scope | — | — |
+| Pixel / audio / video watermarks (SynthID-media) | — | Out of scope | — | — |
+| C2PA soft binding (in-content link to manifest) | — | Out of scope (survives our metadata strip) | — | Vendor detector only |
 | Data-driven model backdoors | — | Out of scope | — | — |
 
 ## Default pipeline

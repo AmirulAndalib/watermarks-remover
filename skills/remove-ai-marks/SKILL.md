@@ -156,7 +156,8 @@ Always state:
 
 - What Layer A / container clean **verifiably** removed (counts, actions).
 - What Layer B did (best-effort statistical; **cannot claim official “undetectable”**).
-- Out of scope: pixel SynthID, secret-key detectors, training backdoors.
+- Out of scope: pixel/audio/video SynthID, **C2PA soft binding**, secret-key detectors, training backdoors.
+- Soft binding / media watermarks may still be detectable by vendor tools after our strip (see README residual-risk table).
 - Prefer writing `*.cleaned.*` unless user asked in-place.
 - Ethics one-liner: own content / no compliance theater.
 
@@ -165,7 +166,8 @@ Always state:
 - Layer A does **not** remove token-sampling watermarks.
 - Layer B cannot be gold-verified without vendor detectors / keys.
 - PDF strip is best-effort without `exiftool`.
-- Pixel-domain image watermarks (SynthID-image, etc.) are out of scope.
+- Pixel-domain image/audio/video watermarks (SynthID-media, etc.) are out of scope.
+- **C2PA soft binding** (content watermark that re-links to a remote manifest after metadata strip) is out of scope — stripping hard-bound C2PA does not clear it.
 - Data-driven / backdoor model marks (trigger phrases) are out of scope.
 
 ## Quick commands cheat sheet

@@ -2,6 +2,15 @@
 
 This skill targets **mark classes**, not reverse-engineered private detectors. Details below are from public docs and the research literature. Algorithms may change.
 
+## Industry two-layer model (context)
+
+Product and regulatory guidance often frames AI disclosure as:
+
+1. **C2PA Content Credentials** — signed, hard-bound metadata (easy to strip; what this skill removes).
+2. **Imperceptible watermark** (SynthID-class) — survives strip/re-upload; includes **soft binding** that can re-attach a remote C2PA manifest.
+
+See: [Institute of AI PM — C2PA and SynthID guide](https://www.institutepm.com/knowledge-hub/ai-content-provenance-watermarking) (SB 942 / EU AI Act Art. 50 framing). This project only implements the **hard-bound / Unicode / rewrite** side of that stack.
+
 ## Anthropic / Claude
 
 - **Embedded text watermarks** at model level (imperceptible; survive copy-paste). Public description matches **statistical token-sampling** class, not only Unicode.
