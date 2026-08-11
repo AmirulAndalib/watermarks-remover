@@ -1,4 +1,12 @@
+```
+_ _ _ ____ ___ ____ ____ _  _ ____ ____ _  _ ____    ____ ____ _  _ ____ _  _ ____ ____
+| | | |__|  |  |___ |__/ |\/| |__| |__/ |_/  [__  __ |__/ |___ |\/| |  | |  | |___ |__/
+|_|_| |  |  |  |___ |  \ |  | |  | |  \ | \_ ___]    |  \ |___ |  | |__|  \/  |___ |  \
+```
+
 # watermarks-remover
+
+<!-- logo: figlet -d .figlet -f cybermedium -w 120 "watermarks-remover" -->
 
 Agent skill to strip **Claude / AI provenance marks** from text and images:
 

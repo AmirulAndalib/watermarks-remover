@@ -133,7 +133,7 @@ Always state:
 - That Layer B is **best-effort** against model-level statistical watermarks; Anthropic’s public detector/docs may still be forthcoming — **cannot claim official “undetectable.”**
 - Prefer writing `*.cleaned.*` unless user asked in-place.
 
-## Limitations (do not overclaim)
+## Limitations
 
 - Layer A does **not** remove token-sampling watermarks.
 - Layer B cannot be gold-verified without Anthropic’s detector.
