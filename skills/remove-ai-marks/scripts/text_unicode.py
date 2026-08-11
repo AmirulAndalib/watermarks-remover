@@ -167,15 +167,52 @@ LATIN_CONFUSABLES: dict[int, str] = {
 _VS_SUPPLEMENT = range(0xE0100, 0xE01F0)
 
 
+# Bidi / directional format controls (subset of strip set, finer inspect labels)
+_BIDI_CPS: frozenset[int] = frozenset(
+    {
+        0x061C,
+        0x200E,
+        0x200F,
+        0x202A,
+        0x202B,
+        0x202C,
+        0x202D,
+        0x202E,
+        0x2066,
+        0x2067,
+        0x2068,
+        0x2069,
+    }
+)
+
+# Zero-width family (common edit-based carriers)
+_ZW_FAMILY: frozenset[int] = frozenset(
+    {0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0x180E}
+)
+
+
 def _is_strip_cp(cp: int) -> bool:
     if cp in STRIP_CODEPOINTS:
         return True
     if cp in _VS_SUPPLEMENT:
         return True
-    # Tag characters used in some stego schemes
+    # Tag characters used in some stego schemes (U+E0001–U+E007F)
     if 0xE0001 <= cp <= 0xE007F:
         return True
     return False
+
+
+def _strip_kind(cp: int) -> str:
+    """Finer-grained inspect kind for strip-class codepoints."""
+    if 0xE0001 <= cp <= 0xE007F:
+        return "tag_chars"
+    if cp in _VS_SUPPLEMENT or 0xFE00 <= cp <= 0xFE0F or 0x180B <= cp <= 0x180D:
+        return "variation_selector"
+    if cp in _BIDI_CPS:
+        return "bidi"
+    if cp in _ZW_FAMILY:
+        return "zwj_family"
+    return "strip"
 
 
 def _char_label(ch: str) -> str:
@@ -191,7 +228,7 @@ class CharHit:
     char: str
     label: str
     count: int
-    kind: str  # strip | space | confusable | other_cf
+    kind: str  # strip | bidi | tag_chars | variation_selector | zwj_family | space | confusable | other_cf
     samples: list[int] = field(default_factory=list)  # character offsets
 
 
@@ -226,7 +263,7 @@ def inspect_text(text: str, *, aggressive: bool = False) -> TextInspectReport:
         cp = ord(ch)
         kind: str | None = None
         if _is_strip_cp(cp):
-            kind = "strip"
+            kind = _strip_kind(cp)
         elif cp in SPACE_HOMOGLYPHS:
             kind = "space"
         elif aggressive and cp in LATIN_CONFUSABLES:
@@ -258,8 +295,9 @@ def inspect_text(text: str, *, aggressive: bool = False) -> TextInspectReport:
         total += len(offsets)
 
     notes = [
-        "Layer A only: invisible/format Unicode and space homoglyphs.",
+        "Layer A only: invisible/format Unicode and space homoglyphs (edit-based carriers).",
         "Statistical (token-sampling) watermarks are not detectable here; use Layer B rewrite.",
+        "Inspect kinds: strip, bidi, tag_chars, variation_selector, zwj_family, space, confusable, other_cf.",
     ]
     if not hits:
         notes.append("No suspicious Unicode characters found.")

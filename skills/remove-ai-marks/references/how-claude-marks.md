@@ -18,7 +18,7 @@ Primary source: [Anthropic Help Center](https://support.claude.com/en/articles/1
 - Imperceptible; survives copy-paste; may survive light editing.
 - Weakened by paraphrase, translation, heavy edit, mixing, short text.
 
-**Likely technical class** (Anthropic has not published the algorithm): statistical **token-sampling** watermarks (Kirchenbauer / SynthID-style). See README chapter *Statistical token-sampling watermarks*.
+**Likely technical class** (Anthropic has not published the algorithm): statistical **token-sampling** watermarks (Kirchenbauer / SynthID-style). See `vendor-notes.md` and `mark-classes.md`.
 
 Layer A scripts only remove **Unicode / homoglyph** carriers. Layer B (rewrite) targets statistical marks.
 
@@ -26,7 +26,7 @@ Layer A scripts only remove **Unicode / homoglyph** carriers. Layer B (rewrite) 
 
 - Signed **Content Credentials** on supported types (examples: `.png`, `.jpg`, `.svg`).
 - Tamper-evident while present; stripped by re-encode, metadata scrub, or many upload pipelines.
-- Inspect with `c2patool` when installed; strip via this skill’s `clean_image.py` / ExifTool.
+- Inspect with `c2patool` when installed; strip via `clean_image.py` / `clean_file.py` / ExifTool.
 
 ## Caveats (Anthropic)
 

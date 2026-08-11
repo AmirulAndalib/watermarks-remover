@@ -1,7 +1,7 @@
 # Contributing to watermarks-remover
 
 Thanks for helping keep the skill accurate and the cleaners reliable. The
-project is a small Python skill (`skills/remove-claude-marks/`) plus tests —
+project is a small Python skill (`skills/remove-ai-marks/`) plus tests —
 focused PRs land fastest.
 
 ## Who can do what
@@ -23,17 +23,18 @@ issue.
 
 ## Prerequisites
 
-- **Python 3.10+** (stdlib only for the skill scripts)
+- **Python 3.10+** (stdlib only for the skill scripts; optional rewrite backends
+  use HTTP to local Ollama / OpenAI-compatible endpoints)
 - From the repo root: `python3 -m pytest -q` should pass before you open a PR
-- Optional for manual image checks: [`c2patool`](https://opensource.contentauthenticity.org/docs/c2patool/), [`exiftool`](https://exiftool.org/)
+- Optional for manual file checks: [`c2patool`](https://opensource.contentauthenticity.org/docs/c2patool/), [`exiftool`](https://exiftool.org/) (PDF)
 
 ## Layout
 
 | Path | Role |
 | --- | --- |
-| `skills/remove-claude-marks/SKILL.md` | Agent skill entry (workflow, ethics) |
-| `skills/remove-claude-marks/scripts/` | Layer A text cleaners + image metadata strip |
-| `skills/remove-claude-marks/references/` | Claude marks, removal matrix, ethics |
+| `skills/remove-ai-marks/SKILL.md` | Agent skill entry (workflow, ethics) |
+| `skills/remove-ai-marks/scripts/` | Layer A/B hooks + image/container cleaners |
+| `skills/remove-ai-marks/references/` | Vendors, mark classes, matrix, ethics |
 | `tests/` | Pytest suite and fixtures |
 | `.github/workflows/ci.yml` | CI job `test` |
 
@@ -42,10 +43,13 @@ issue.
 1. **Layer A (Unicode / format controls)** — deterministic scripts under
    `scripts/` (`text_unicode.py`, `clean_text.py`, `inspect_text.py`). Prefer
    tests with fixtures in `tests/fixtures/`.
-2. **Layer B (statistical rewrite)** — guidance in `SKILL.md` and references;
-   no bundled model. Keep instructions clear and ethics-aware.
-3. **Files (C2PA / EXIF / XMP / IPTC)** — `image_meta.py`, `clean_image.py`,
-   `inspect_image.py`. Preserve image pixels; strip provenance metadata only.
+2. **Layer B (statistical rewrite)** — guidance in `SKILL.md` plus optional
+   `rewrite_text.py` (print-prompt default; ollama / openai-compatible). No
+   bundled model. Keep ethics-aware.
+3. **Files (C2PA / EXIF / XMP / props)** — `image_meta.py` (PNG/JPEG),
+   `container_meta.py` (SVG/PDF/DOCX/ODT/HTML/MD), unified
+   `inspect_file.py` / `clean_file.py`. Preserve document body / pixels;
+   strip provenance metadata only.
 
 ## Checklist for a change
 
@@ -63,8 +67,8 @@ issue.
   needed and redacted
 - Respect `references/ethics.md`: this tool is for content the user owns
 
-Questions? Open an issue describing the input type (text / PNG / JPEG) and
-which layer failed or is missing.
+Questions? Open an issue describing the input type (text / image / document)
+and which layer failed or is missing.
 
 ## Community
 

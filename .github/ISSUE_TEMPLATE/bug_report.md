@@ -39,9 +39,10 @@ What should have happened instead.
 Paste relevant CLI output (redact private content):
 
 ```bash
-SCRIPTS=skills/remove-claude-marks/scripts
-python3 "$SCRIPTS/inspect_text.py" path/or/-
+SCRIPTS=skills/remove-ai-marks/scripts
+python3 "$SCRIPTS/inspect_file.py" path
 # or:
+python3 "$SCRIPTS/inspect_text.py" path/or/-
 python3 "$SCRIPTS/inspect_image.py" path.png
 ```
 
