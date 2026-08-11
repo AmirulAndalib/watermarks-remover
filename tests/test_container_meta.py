@@ -161,3 +161,49 @@ def test_inspect_container_svg(tmp_path: Path):
     report = inspect_container(src)
     assert report.format == "svg"
     assert report.has_c2pa or report.has_ai_metadata
+
+
+def test_fixtures_md_html_svg_roundtrip(tmp_path: Path):
+    root = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
+    for name in ("sample_ai.md", "sample_ai.html", "sample_meta.svg"):
+        src = root / name
+        dest = tmp_path / f"{name}.cleaned{src.suffix}"
+        result = clean_container(src, dest)
+        assert dest.is_file()
+        assert result["format"] in ("markdown", "html", "svg")
+        # AI-ish keys/tags should be reduced
+        body = dest.read_bytes().lower()
+        assert b"chatgpt" not in body
+        assert b"generator: claude" not in body
+
+
+def test_pdf_degraded_clean_without_crash(tmp_path: Path):
+    """Minimal PDF with an XMP packet; clean should not raise (may be degraded)."""
+    from container_meta import clean_pdf, inspect_pdf
+
+    xmp = (
+        b"<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?>"
+        b"<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+        b"<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+        b"<rdf:Description>"
+        b"<digitalSourceType>trainedAlgorithmicMedia</digitalSourceType>"
+        b"</rdf:Description></rdf:RDF></x:xmpmeta>"
+        b"<?xpacket end='w'?>"
+    )
+    # Minimal-ish PDF skeleton (not renderable; enough for byte-level tools)
+    pdf = (
+        b"%PDF-1.4\n"
+        b"1 0 obj<<>>endobj\n"
+        b"trailer<<>>\n"
+        + xmp
+        + b"\n%%EOF\n"
+    )
+    src = tmp_path / "t.pdf"
+    dest = tmp_path / "t.cleaned.pdf"
+    src.write_bytes(pdf)
+    has_c2pa, has_ai, findings, _ = inspect_pdf(src, pdf)
+    assert has_ai or has_c2pa or findings
+    actions, meta = clean_pdf(src, dest)
+    assert dest.is_file()
+    assert actions
+    assert meta.get("mode") in ("exiftool", "stdlib-xmp", "copy")

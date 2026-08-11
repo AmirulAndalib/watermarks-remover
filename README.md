@@ -138,7 +138,8 @@ See [`skills/remove-ai-marks/references/ethics.md`](skills/remove-ai-marks/refer
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install pytest
-.venv/bin/python -m pytest tests/ -q
+.venv/bin/python -m pytest          # or: make test
+make smoke                          # quick CLI smoke on fixtures
 ```
 
 ## Changelog
