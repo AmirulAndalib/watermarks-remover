@@ -158,6 +158,15 @@ make smoke                          # quick CLI smoke on fixtures
 
 ## Changelog
 
+### [v0.1.0](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.1.0) — packaging polish + provenance honesty
+
+- `Makefile` (`test` / `smoke` / `install-skill`) and `pytest.ini`
+- Fixture samples for Markdown, HTML, SVG; PDF degraded-clean test
+- Docs: industry **two-layer** model (hard-bound C2PA vs soft binding / SynthID-media)
+- README residual-risk table + links to external verify tools
+- Reference: Institute of AI PM C2PA/SynthID guide
+- Soft-binding and pixel/audio/video watermarks explicitly out of scope in skill/matrix/ethics
+
 ### [v0.0.1](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.0.1) — initial multi-vendor release
 
 - Agent skill `remove-ai-marks` (replaces Claude-only `remove-claude-marks`)
