@@ -103,6 +103,27 @@ Prefer a **non-origin** model for Layer B (do not rewrite Claude text with Claud
 
 ---
 
+## Disclaimer: what removing a text watermark costs
+
+Text watermarks live in **the wording itself**: the signal is spread across token choices, so nearly every sentence carries a little of it. Two consequences follow, and they are why Layer B is honestly described as *best-effort* rather than a magic eraser.
+
+1. **Removal means rewording, not restructuring.** Shuffling paragraphs, changing headings, or light touch-ups barely move the signal. Stripping a statistical mark requires rewriting a substantial fraction of the text — sentence by sentence, not section by section.
+
+2. **Rewording degrades the copy.** Any rewrite replaces the original word choices with the rewriting model's, which flattens tone, voice, and precision. On production copy (SEO, marketing, client work) that degradation is real and often visible to the people who care most about the writing. It is like taking text from a top-tier model and asking a less capable model to rewrite it from scratch: the result cannot exceed the rewrite model's ceiling.
+
+Which leads to the honest full-circle question:
+
+> If the plan is to rewrite the text with a cheaper model anyway, why pay for a premium model in the first place? Generating directly with the cheaper model is simpler, cheaper, and produces the same — or better — end result.
+
+Layer B makes sense when you specifically want the premium model's **thinking and drafting** and accept a rewrite pass to satisfy a hygiene or privacy requirement — not as a cheap route to mark-free text.
+
+**When to skip Layer B:**
+
+- **Quality matters more than hygiene:** use the lossless path — Layer A Unicode scrub plus the file metadata cleaners — and keep the original prose.
+- **Rewriting anyway:** use a **non-origin** model (rewriting with the origin model can re-stamp the text), and remember residual risk remains — no tool can certify a vendor detector will fail.
+
+---
+
 ## File formats
 
 | Format | Inspect | Clean |
@@ -138,7 +159,7 @@ Industry two-layer context (C2PA + imperceptible watermark): [Institute of AI PM
 | Option | Removes | Notes |
 | --- | --- | --- |
 | Unicode scrub (Layer A) | ZWSP, bidi, tags, exotic spaces, … | Safe default for text |
-| Rewrite (Layer B) | Statistical token marks (best-effort) | Always offered by skill |
+| Rewrite (Layer B) | Statistical token marks (best-effort) | Always offered by skill; costs style — see [Disclaimer](#disclaimer-what-removing-a-text-watermark-costs) |
 | Container/metadata strip | File provenance | See format table |
 | Open-weight local models | Avoid re-stamping with origin model | Operational alternative |
 
