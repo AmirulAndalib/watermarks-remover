@@ -26,7 +26,7 @@ issue.
 - **Python 3.10+** (stdlib only for the skill scripts; optional rewrite backends
   use HTTP to local Ollama / OpenAI-compatible endpoints)
 - From the repo root: `python3 -m pytest -q` should pass before you open a PR
-- Optional for manual file checks: [`c2patool`](https://opensource.contentauthenticity.org/docs/c2patool/), [`exiftool`](https://exiftool.org/) (PDF)
+- Optional for manual file checks: [`c2patool`](https://github.com/contentauth/c2pa-rs/tree/main/cli), [`exiftool`](https://exiftool.org/) (PDF)
 
 ## Layout
 

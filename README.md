@@ -44,7 +44,7 @@ Optional system tools (auto-used when present):
 
 | Tool | Role |
 | --- | --- |
-| [`c2patool`](https://opensource.contentauthenticity.org/docs/c2patool/) | Inspect C2PA manifests |
+| [`c2patool`](https://github.com/contentauth/c2pa-rs/tree/main/cli) | Inspect C2PA manifests |
 | [`exiftool`](https://exiftool.org/) | Residual metadata strip (esp. **PDF**) |
 
 Core scripts need **Python 3.10+** stdlib only. Layer B model calls are optional.
@@ -146,7 +146,7 @@ To check residual signals yourself (optional, external):
 
 | Channel | What we remove | What may remain | External check (examples) |
 | --- | --- | --- | --- |
-| Hard-bound C2PA / EXIF / XMP | Yes | Soft-bound / pixel marks | [c2patool](https://opensource.contentauthenticity.org/docs/c2patool/), [Content Credentials verify](https://contentcredentials.org/verify) |
+| Hard-bound C2PA / EXIF / XMP | Yes | Soft-bound / pixel marks | [c2patool](https://github.com/contentauth/c2pa-rs/tree/main/cli), [Content Credentials verify](https://contentcredentials.org/verify) |
 | SynthID-class media | No | Pixel/audio/video watermark | Provider tools (e.g. [Google SynthID](https://deepmind.google/science/synthid/) / Vertex detector where offered) |
 | Statistical text | Best-effort rewrite | Strong marks after light edit | No public universal detector; vendor tools when available |
 
@@ -206,7 +206,7 @@ MIT — see [LICENSE](LICENSE).
 
 - [How Claude marks AI-generated content](https://support.claude.com/en/articles/16266773-how-claude-marks-ai-generated-content) (Anthropic)
 - Dathathri et al., [*Scalable watermarking for identifying large language model outputs*](https://www.nature.com/articles/s41586-024-08025-4) (SynthID-Text, Nature 2024)
-- [C2PA](https://c2pa.org/) / [c2patool](https://opensource.contentauthenticity.org/docs/c2patool/)
+- [C2PA](https://c2pa.org/) / [c2patool](https://github.com/contentauth/c2pa-rs/tree/main/cli)
 - Kirchenbauer et al., [*A Watermark for Large Language Models*](https://arxiv.org/abs/2301.10226)
 - [google-deepmind/synthid-text](https://github.com/google-deepmind/synthid-text) (research reference; not used for detection here)
 - Institute of AI PM, [*AI Content Provenance and Watermarking: The PM's Guide to C2PA and SynthID*](https://www.institutepm.com/knowledge-hub/ai-content-provenance-watermarking) (two-layer industry model: C2PA + imperceptible watermark / soft binding; SB 942 / EU AI Act Art. 50 context)
