@@ -21,7 +21,7 @@ Agent skill + stdlib Python scripts to strip **multi-vendor AI provenance marks*
 
 Vendors / ecosystems (class-level): **Claude**, **Gemini / SynthID-Text**, **OpenAI** provenance surfaces, **open-LLM** Kirchenbauer-style marks.
 
-**Latest release:** [v0.2.0](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.2.0)
+**Latest release:** [v0.3.0](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.3.0)
 
 Skill path: [`skills/remove-ai-marks/`](skills/remove-ai-marks/)  
 (migration: formerly `remove-claude-marks`; slash alias `/remove-claude-marks` still documented)
@@ -222,6 +222,14 @@ make smoke                          # quick CLI smoke on fixtures
 ```
 
 ## Changelog
+
+### [v0.3.0](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.3.0) — optional SynthID pixel scoring
+
+- Optional pixel-domain SynthID scorer via an external [`aloshdenny/reverse-SynthID`](https://github.com/aloshdenny/reverse-SynthID) checkout (`score_synthid.py`); surfaced in `inspect_image.py` / `clean_image.py` with `REVERSE_SYNTHID_DIR` or `--synthid-dir`
+- `setup_synthid.sh` bootstrap (scorer-only dependencies; `--full` installs upstream requirements); `Dockerfile.synthid` plus `make docker-synthid-build` / `docker-synthid-help`
+- Makefile `smoke-synthid` and `bootstrap-synthid` targets
+- Tests for the scorer adapter, CLI unavailable path, JSON parsing, and runtime errors
+- Docs: detection/scoring only (no pixel removal); upstream code is not bundled and remains under its non-commercial Research License
 
 ### [v0.2.0](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.2.0) — c2patool false-positive fix
 
