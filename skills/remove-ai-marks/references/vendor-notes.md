@@ -32,6 +32,7 @@ Source: [How Claude marks AI-generated content](https://support.claude.com/en/ar
   - **Data-driven / backdoor** (trigger phrases) → **out of scope**
   - **Generative** (sampling) → Layer B best-effort
 - Productionized in Gemini-scale systems; open research code exists, but **production keys are not public** — this skill does **not** ship a SynthID detector.
+- Optional external reference: [`aloshdenny/reverse-SynthID`](https://github.com/aloshdenny/reverse-SynthID) provides a reverse-engineered pixel-domain scorer. It is **not bundled** here, is best-effort, and is under a non-commercial Research License; it is not the official Google detector.
 
 **Skill mapping:** same Layer B rewrite attacks (paraphrase / back-translate / structural) used in the literature against sampling watermarks.
 

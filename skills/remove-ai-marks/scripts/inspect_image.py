@@ -17,13 +17,19 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("path", type=Path, help="Image path (PNG or JPEG)")
     p.add_argument("--json", action="store_true")
+    p.add_argument(
+        "--synthid-dir",
+        type=str,
+        default=None,
+        help="reverse-SynthID checkout root for optional pixel SynthID scoring",
+    )
     args = p.parse_args()
 
     if not args.path.is_file():
         print(f"not a file: {args.path}", file=sys.stderr)
         return 2
 
-    report = inspect_image(args.path)
+    report = inspect_image(args.path, synthid_dir=args.synthid_dir)
     if args.json:
         emit_json(report.to_dict())
     else:
@@ -43,6 +49,15 @@ def main() -> int:
             print("exiftool highlights:")
             for line in et["interesting_lines"][:20]:
                 print(f"  {line}")
+        if report.synthid and report.synthid.get("available"):
+            label = "yes" if report.synthid.get("is_watermarked") else "no"
+            print(
+                "SynthID score: "
+                f"confidence {report.synthid.get('confidence', 0.0):.3f} "
+                f"(watermarked: {label})"
+            )
+        elif report.synthid and report.synthid.get("error"):
+            print(f"SynthID score: error: {report.synthid['error']}")
 
     return 0 if not (report.has_c2pa or report.has_ai_metadata) else 1
 

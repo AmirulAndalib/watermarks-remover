@@ -75,6 +75,50 @@ python3 "$SCRIPTS/inspect_image.py" shot.png
 python3 "$SCRIPTS/clean_image.py" shot.png -o shot.cleaned.png
 ```
 
+## Optional SynthID pixel scoring
+
+`inspect_image.py` and `clean_image.py` can report a pixel-domain SynthID
+confidence score when an external checkout of
+[`aloshdenny/reverse-SynthID`](https://github.com/aloshdenny/reverse-SynthID)
+is available. The scorer is **not bundled**: it is loaded at runtime from your
+checkout, and its code remains under the upstream project's non-commercial
+Research License.
+
+### Option 1: one-command bootstrap (no Docker)
+
+```bash
+SCRIPTS=skills/remove-ai-marks/scripts
+
+# Clones upstream, creates a venv, and installs scorer-only dependencies.
+"$SCRIPTS/setup_synthid.sh"
+
+# Score an image (default checkout: ~/reverse-SynthID).
+REVERSE_SYNTHID_DIR=~/reverse-SynthID \
+~/reverse-SynthID/.venv/bin/python "$SCRIPTS/score_synthid.py" shot.png
+
+# Or surface the score from inspect / clean (same venv Python).
+REVERSE_SYNTHID_DIR=~/reverse-SynthID \
+~/reverse-SynthID/.venv/bin/python "$SCRIPTS/inspect_image.py" shot.png
+```
+
+`setup_synthid.sh` accepts `--dir PATH`, `--ref REF`, and `--full` (install the
+full upstream `requirements.txt`, which adds `torch`/`diffusers` for the
+upstream VAE bypass this project does not use).
+
+### Option 2: local Docker build
+
+```bash
+make docker-synthid-build
+docker run --rm -v "$(pwd):/data" watermarks-remover-synthid-scorer /data/shot.png
+```
+
+The image is built locally from the upstream source at build time. It is not
+published, so it does not redistribute the upstream code.
+
+V4 scoring uses `artifacts/spectral_codebook_v4.npz` from the upstream checkout
+(~220 MB). This is **detection/scoring only** — it does not remove pixel
+watermarks.
+
 ## Coverage matrix
 
 | Channel | Claude | Gemini/SynthID | OpenAI | Open-LLM |
@@ -82,7 +126,7 @@ python3 "$SCRIPTS/clean_image.py" shot.png -o shot.cleaned.png
 | Unicode / edit-based text | Layer A | Layer A | Layer A | Layer A |
 | Statistical sampling text | Layer B best-effort | Layer B best-effort | Layer B if present | Layer B best-effort |
 | C2PA / file metadata | Yes (listed formats) | Yes when present | Yes when present | Yes when present |
-| Pixel image marks | Out of scope | Out of scope | Out of scope | Out of scope |
+| Pixel image marks | Out of scope | Optional SynthID score (external); removal out of scope | Out of scope | Out of scope |
 | Training backdoors | Out of scope | Out of scope | Out of scope | Out of scope |
 
 Details: [`skills/remove-ai-marks/references/vendor-notes.md`](skills/remove-ai-marks/references/vendor-notes.md), [`mark-classes.md`](skills/remove-ai-marks/references/mark-classes.md).
@@ -136,7 +180,7 @@ Layer B makes sense when you specifically want the premium model's **thinking an
 | HTML | meta, JSON-LD, data-ai* | Strip tags/attrs |
 | Markdown | YAML frontmatter AI keys | Drop keys + Layer A body |
 
-Pixel-domain watermarks and **C2PA soft binding** (in-content watermark that can re-link a remote Content Credentials manifest after metadata is stripped) remain **out of scope**. Stripping hard-bound C2PA does **not** clear those channels.
+Pixel-domain watermark **removal** and **C2PA soft binding** (in-content watermark that can re-link a remote Content Credentials manifest after metadata is stripped) remain **out of scope**. Stripping hard-bound C2PA does **not** clear those channels. An optional local SynthID scorer is available for detection only (see above).
 
 ### Residual risk after a clean
 
@@ -147,7 +191,7 @@ To check residual signals yourself (optional, external):
 | Channel | What we remove | What may remain | External check (examples) |
 | --- | --- | --- | --- |
 | Hard-bound C2PA / EXIF / XMP | Yes | Soft-bound / pixel marks | [c2patool](https://github.com/contentauth/c2pa-rs/tree/main/cli), [Content Credentials verify](https://contentcredentials.org/verify) |
-| SynthID-class media | No | Pixel/audio/video watermark | Provider tools (e.g. [Google SynthID](https://deepmind.google/science/synthid/) / Vertex detector where offered) |
+| SynthID-class media | No (optional local score only) | Pixel/audio/video watermark | Provider tools (e.g. [Google SynthID](https://deepmind.google/science/synthid/) / Vertex detector where offered); optional local [reverse-SynthID](https://github.com/aloshdenny/reverse-SynthID) scorer |
 | Statistical text | Best-effort rewrite | Strong marks after light edit | No public universal detector; vendor tools when available |
 
 Industry two-layer context (C2PA + imperceptible watermark): [Institute of AI PM guide](https://www.institutepm.com/knowledge-hub/ai-content-provenance-watermarking).

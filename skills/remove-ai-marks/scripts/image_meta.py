@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import struct
 import subprocess
+import sys
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from common import which
+
+SCRIPTS_DIR = Path(__file__).resolve().parent
 
 PNG_SIG = b"\x89PNG\r\n\x1a\n"
 JPEG_SOI = b"\xff\xd8"
@@ -57,6 +62,7 @@ class ImageInspectReport:
     has_ai_metadata: bool
     findings: list[str] = field(default_factory=list)
     tools: dict[str, Any] = field(default_factory=dict)
+    synthid: dict[str, Any] | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -66,6 +72,7 @@ class ImageInspectReport:
             "has_ai_metadata": self.has_ai_metadata,
             "findings": self.findings,
             "tools": self.tools,
+            "synthid": self.synthid,
         }
 
 
@@ -246,7 +253,48 @@ def run_optional_tools(path: Path) -> dict[str, Any]:
     return tools
 
 
-def inspect_image(path: Path) -> ImageInspectReport:
+def run_synthid_score(
+    path: Path,
+    upstream_dir: str | None = None,
+) -> dict[str, Any] | None:
+    """Run the optional reverse-SynthID scorer in a subprocess.
+
+    Returns None when the scorer is not configured or unavailable (exit 3),
+    so callers can keep the default "no SynthID score" behavior.
+    """
+    if upstream_dir is None:
+        upstream_dir = os.environ.get("REVERSE_SYNTHID_DIR")
+    if not upstream_dir:
+        return None
+
+    script = SCRIPTS_DIR / "score_synthid.py"
+    cmd = [
+        sys.executable,
+        str(script),
+        str(path),
+        "--upstream-dir",
+        str(upstream_dir),
+        "--json",
+    ]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    except Exception as e:
+        return {"available": False, "error": str(e)}
+
+    if r.returncode == 3:
+        return None
+    if r.returncode != 0:
+        return {"available": False, "error": (r.stderr or "").strip()[:2000]}
+    try:
+        return json.loads(r.stdout or "{}")
+    except json.JSONDecodeError as e:
+        return {"available": False, "error": f"bad scorer JSON: {e}"}
+
+
+def inspect_image(
+    path: Path,
+    synthid_dir: str | None = None,
+) -> ImageInspectReport:
     data = path.read_bytes()
     fmt = detect_format(data)
     if fmt == "png":
@@ -270,6 +318,7 @@ def inspect_image(path: Path) -> ImageInspectReport:
         has_ai_metadata=has_ai,
         findings=findings,
         tools=tools,
+        synthid=run_synthid_score(path, synthid_dir),
     )
 
 
@@ -418,7 +467,9 @@ def clean_image(
     dest: Path,
     *,
     strip_all_metadata: bool = True,
+    synthid_dir: str | None = None,
 ) -> dict[str, Any]:
+    synthid_before = run_synthid_score(path, synthid_dir)
     data = path.read_bytes()
     fmt = detect_format(data)
     if fmt == "png":
@@ -450,7 +501,7 @@ def clean_image(
         except Exception as e:
             actions.append(f"exiftool failed: {e}")
 
-    after = inspect_image(dest)
+    after = inspect_image(dest, synthid_dir=synthid_dir)
     return {
         "input": str(path),
         "output": str(dest),
@@ -461,4 +512,6 @@ def clean_image(
         "still_has_c2pa": after.has_c2pa,
         "still_has_ai_metadata": after.has_ai_metadata,
         "post_findings": after.findings,
+        "synthid_before": synthid_before,
+        "synthid_after": after.synthid,
     }

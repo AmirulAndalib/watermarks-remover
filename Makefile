@@ -1,4 +1,4 @@
-.PHONY: test smoke install-skill clean
+.PHONY: test smoke smoke-synthid bootstrap-synthid docker-synthid-build docker-synthid-help install-skill clean
 
 SCRIPTS := skills/remove-ai-marks/scripts
 PYTHON ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -15,6 +15,22 @@ smoke:
 	python3 $(SCRIPTS)/clean_file.py tests/fixtures/sample_ai.html -o /tmp/sample_ai.cleaned.html
 	python3 $(SCRIPTS)/clean_file.py tests/fixtures/sample_meta.svg -o /tmp/sample_meta.cleaned.svg
 	@echo "smoke ok"
+
+smoke-synthid:
+	@if [ -z "$(REVERSE_SYNTHID_DIR)" ]; then \
+	  echo "smoke-synthid skipped (set REVERSE_SYNTHID_DIR)"; \
+	else \
+	  $(PYTHON) $(SCRIPTS)/score_synthid.py --help >/dev/null && echo "score_synthid adapter present"; \
+	fi
+
+bootstrap-synthid:
+	./skills/remove-ai-marks/scripts/setup_synthid.sh
+
+docker-synthid-build:
+	docker build -f Dockerfile.synthid -t watermarks-remover-synthid-scorer .
+
+docker-synthid-help:
+	docker run --rm watermarks-remover-synthid-scorer --help
 
 install-skill:
 	mkdir -p $(HOME)/.grok/skills

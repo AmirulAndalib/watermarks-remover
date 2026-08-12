@@ -64,6 +64,12 @@ python3 "$SCRIPTS/inspect_image.py" --json image.png
 
 Show a short summary (suspicious codepoints; C2PA/AI flags).
 
+Optional: when `REVERSE_SYNTHID_DIR` is set, `inspect_image.py` and
+`clean_image.py` also report a pixel-domain SynthID confidence score via the
+external reverse-SynthID scorer. That is **detection only**, not removal.
+Bootstrap the external checkout with `scripts/setup_synthid.sh`, or build a
+local image with `make docker-synthid-build`.
+
 ### 3. Deterministic clean (always for matching inputs)
 
 **Text — Layer A:**
@@ -166,7 +172,8 @@ Always state:
 - Layer A does **not** remove token-sampling watermarks.
 - Layer B cannot be gold-verified without vendor detectors / keys.
 - PDF strip is best-effort without `exiftool`.
-- Pixel-domain image/audio/video watermarks (SynthID-media, etc.) are out of scope.
+- Pixel-domain image/audio/video watermarks (SynthID-media, etc.) are out of scope for removal; an optional external scorer can only report a SynthID confidence estimate.
+- The reverse-SynthID scorer is external, best-effort, and under a non-commercial Research License; it is not bundled and is not an official Google detector.
 - **C2PA soft binding** (content watermark that re-links to a remote manifest after metadata strip) is out of scope — stripping hard-bound C2PA does not clear it.
 - Data-driven / backdoor model marks (trigger phrases) are out of scope.
 
