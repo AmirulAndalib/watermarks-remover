@@ -21,7 +21,7 @@ Agent skill + stdlib Python scripts to strip **multi-vendor AI provenance marks*
 
 Vendors / ecosystems (class-level): **Claude**, **Gemini / SynthID-Text**, **OpenAI** provenance surfaces, **open-LLM** Kirchenbauer-style marks.
 
-**Latest release:** [v0.1.0](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.1.0)
+**Latest release:** [v0.2.0](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.2.0)
 
 Skill path: [`skills/remove-ai-marks/`](skills/remove-ai-marks/)  
 (migration: formerly `remove-claude-marks`; slash alias `/remove-claude-marks` still documented)
@@ -178,6 +178,12 @@ make smoke                          # quick CLI smoke on fixtures
 ```
 
 ## Changelog
+
+### [v0.2.0](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.2.0) — c2patool false-positive fix
+
+- `image_meta.py`: `has_manifest` no longer flags `Error: No claim found` / `No JUMBF data found` as a manifest (operator-precedence bug: the negative markers now veto every positive branch)
+- New `tests/test_c2patool_report.py` (4 cases: no claim, no JUMBF, genuine manifest, tool absent)
+- Docs: fixed `c2patool` links (repo moved to `contentauth/c2pa-rs`); added a disclaimer on the quality cost of text-watermark removal
 
 ### [v0.1.0](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.1.0) — packaging polish + provenance honesty
 
