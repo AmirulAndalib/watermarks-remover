@@ -21,7 +21,7 @@ Agent skill + stdlib Python scripts to strip **multi-vendor AI provenance marks*
 
 Vendors / ecosystems (class-level): **Claude**, **Gemini / SynthID-Text**, **OpenAI** provenance surfaces, **open-LLM** Kirchenbauer-style marks.
 
-**Latest release:** [v0.3.2](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.3.2)
+**Latest release:** [v0.4.0](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.4.0)
 
 Skill path: [`skills/remove-ai-marks/`](skills/remove-ai-marks/)  
 (migration: formerly `remove-claude-marks`; slash alias `/remove-claude-marks` still documented)
@@ -314,13 +314,38 @@ make smoke                          # quick CLI smoke on fixtures
 
 ## Changelog
 
-### v0.4.0 (unreleased) — optional CtrlRegen pixel removal (external)
+### [v0.4.0](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.4.0) — pixel removal, finding confidence, Windows & false-positive fixes
+
+**Optional CtrlRegen pixel removal (external backend)**
 
 - Optional pixel-domain watermark removal via an external `mertizci/noai-watermark` checkout: `clean_ctrlregen.py` adapter + `setup_ctrlregen.sh` bootstrap (pinned commit, sparse checkout, venv, SHA verification), plus `Dockerfile.ctrlregen` and `make bootstrap-ctrlregen` / `docker-ctrlregen-build` / `smoke-ctrlregen`
 - `clean_image.py --remove-pixel ctrlregen` runs metadata strip → CtrlRegen removal → optional reverse-SynthID before/after score; `inspect_image.py` hints at the flag on a high SynthID score
 - Conservative default strength `0.25` (presets 0.15/0.25/0.35/0.5/0.7); the 512×512-native pipeline is auto-tiled by the backend for larger images; the torch subprocess gets higher env-overridable resource caps
 - Backend is never bundled: `noai-watermark` ships no LICENSE file (treated as all-rights-reserved), and its auto-install/restart code paths are bypassed by using `CtrlRegenEngine` directly
-- Docs: README section + research references (CtrlRegen, UnMarker, forensic-stealth caveat), SKILL/matrix/vendor-notes/ethics updates; mock-based tests (no torch in CI)
+
+**Finding confidence and aggregate audits**
+
+- Findings are now classified `confirmed` / `probable` / `informational` / `likely_false_positive`, exposed in text/image/container JSON and human reports
+- New `audit_dir.py` (recursive tree) and `audit_website.py` (sitemap discovery + crawl) aggregate reports; documented in SKILL.md
+
+**False-positive fixes**
+
+- DOCX: scan only `docProps`/`customXml`, not the visible body (#14)
+- Text Layer A: preserve emoji `VS16`/`ZWJ` after an emoji base; new `--strip-emoji-glue` paranoid flag (#22)
+- HTML: treat CMS generator tags as informational, not AI metadata (#13)
+- PDF: exclude stream payloads from the AI-marker byte scan (#13)
+- Inspect reports note unsupported/best-effort paths
+
+**Windows support**
+
+- Gate POSIX-only `preexec_fn` and `os.fchmod` so writes and optional tools run on Windows (#15, #23)
+- Reconfigure stdio to UTF-8 so redirected Windows streams no longer raise on invisible Unicode; Windows CI leg + CLI smoke run (#23)
+
+**Docs and supply chain**
+
+- README CtrlRegen section + research references (CtrlRegen, UnMarker, forensic-stealth caveat), responsible-use disclaimer; SKILL/matrix/vendor-notes/ethics updates
+- Dependabot config + security-path CODEOWNERS; bump scipy/numpy/opencv-python/scikit-learn/pywavelets and the base image to Python 3.14-slim
+- Mock-based CtrlRegen tests (no torch in CI)
 
 ### [v0.3.2](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.3.2) — security hardening (safe writes, HTTP client, CI supply chain)
 
