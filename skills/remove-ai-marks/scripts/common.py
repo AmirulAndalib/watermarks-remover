@@ -26,6 +26,31 @@ def eprint(*args: object) -> None:
     print(*args, file=sys.stderr)
 
 
+def _reconfigure_stream(stream: Any, errors: str) -> None:
+    """Switch a std stream to UTF-8 when it supports reconfiguration.
+
+    On Windows, redirected stdin/stdout/stderr default to the ANSI codepage
+    (e.g. cp1252), which cannot encode/decode the invisible Unicode
+    characters this tool exists to remove. UTF-8 covers every codepoint, so
+    text writes stop raising and piped input matches the file-path handling.
+    """
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is not None:
+        try:
+            reconfigure(encoding="utf-8", errors=errors)
+        except (OSError, ValueError):
+            pass
+
+
+def _configure_stdio() -> None:
+    _reconfigure_stream(sys.stdin, "surrogateescape")
+    _reconfigure_stream(sys.stdout, "backslashreplace")
+    _reconfigure_stream(sys.stderr, "backslashreplace")
+
+
+_configure_stdio()
+
+
 def read_text_input(path: str | None) -> str:
     if path is None or path == "-":
         return _read_stdin_capped()
@@ -141,6 +166,12 @@ def subprocess_rlimits() -> None:
         pass
 
 
+# subprocess.run(preexec_fn=...) is POSIX-only; on Windows the argument
+# itself raises ValueError before the callable runs. Windows resource
+# limiting would need a Job Object (pywin32), which is out of scope.
+subprocess_preexec_fn = subprocess_rlimits if os.name == "posix" else None
+
+
 def emit_json(data: Any) -> None:
     json.dump(data, sys.stdout, indent=2, ensure_ascii=False)
     sys.stdout.write("\n")
@@ -164,5 +195,7 @@ def safe_arg(path: str) -> str:
     (e.g. exiftool's -@argfile), turning a crafted filename into argv injection.
     """
     if path.startswith("-"):
+        # './' also resolves correctly on Windows (Win32 accepts '/' as a
+        # path separator), so no platform branch is needed here.
         return "./" + path
     return path
