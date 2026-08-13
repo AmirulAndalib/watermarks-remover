@@ -56,6 +56,12 @@ def main() -> int:
                 f"confidence {report.synthid.get('confidence', 0.0):.3f} "
                 f"(watermarked: {label})"
             )
+            if report.synthid.get("is_watermarked"):
+                print(
+                    "Hint: optional pixel removal is available via "
+                    "clean_image.py IMG --remove-pixel ctrlregen "
+                    "--ctrlregen-dir $NOAI_WATERMARK_DIR"
+                )
         elif report.synthid and report.synthid.get("error"):
             print(f"SynthID score: error: {report.synthid['error']}")
 

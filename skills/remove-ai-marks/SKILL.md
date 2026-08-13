@@ -32,6 +32,8 @@ python3 "$SCRIPTS/inspect_text.py" ...
 python3 "$SCRIPTS/clean_text.py" ...
 python3 "$SCRIPTS/inspect_image.py" ...
 python3 "$SCRIPTS/clean_image.py" ...
+python3 "$SCRIPTS/clean_ctrlregen.py" ...   # optional external pixel removal (bootstrap first)
+"$SCRIPTS/setup_ctrlregen.sh"              # one-command bootstrap for the above
 python3 "$SCRIPTS/rewrite_text.py" ...
 python3 "$SCRIPTS/audit_dir.py" ...
 python3 "$SCRIPTS/audit_website.py" ...
@@ -73,6 +75,11 @@ external reverse-SynthID scorer. That is **detection only**, not removal.
 Bootstrap the external checkout with `scripts/setup_synthid.sh`, or build a
 local image with `make docker-synthid-build`.
 
+For pixel-domain **removal**, bootstrap the CtrlRegen backend with
+`scripts/setup_ctrlregen.sh` (or `make docker-ctrlregen-build`), then use
+`clean_image.py --remove-pixel ctrlregen`. See the README "Optional CtrlRegen
+pixel removal" section for strength presets and the 512×512 size handling.
+
 ### Aggregate audits and confidence
 
 Findings are classified as **confirmed**, **probable**, **informational**, or
@@ -111,6 +118,9 @@ python3 "$SCRIPTS/inspect_file.py" OUTPUT   # verify
 ```
 
 Optional tools if installed: `c2patool`, `exiftool` (auto-used when present; PDF strongly prefers exiftool).
+
+**Images — optional pixel removal (external):** after the metadata clean, add
+`--remove-pixel ctrlregen` to `clean_image.py` (bootstrap the backend first).
 
 ### 4. Layer B — always offer rewrite (prose)
 
@@ -227,7 +237,8 @@ Always state:
 - Layer A does **not** remove token-sampling watermarks.
 - Layer B cannot be gold-verified without vendor detectors / keys.
 - PDF strip is best-effort without `exiftool`.
-- Pixel-domain image/audio/video watermarks (SynthID-media, etc.) are out of scope for removal; an optional external scorer can only report a SynthID confidence estimate.
+- Pixel-domain **image** watermarks can be removed optionally via the external CtrlRegen backend (`clean_image.py --remove-pixel ctrlregen`); audio/video watermarks remain out of scope for removal.
+- The CtrlRegen backend is external, all-rights-reserved (no LICENSE file), never bundled, heavy (~10 GB model downloads), and a regenerating remover — no local detector certifies StegaStamp/Tree-Ring/StableSignature removal.
 - The reverse-SynthID scorer is external, best-effort, and under a non-commercial Research License; it is not bundled and is not an official Google detector.
 - **C2PA soft binding** (content watermark that re-links to a remote manifest after metadata strip) is out of scope — stripping hard-bound C2PA does not clear it.
 - Data-driven / backdoor model marks (trigger phrases) are out of scope.
@@ -249,6 +260,12 @@ python3 scripts/rewrite_text.py notes.md --backend print-prompt --strength parap
 # Images only
 python3 scripts/inspect_image.py shot.png
 python3 scripts/clean_image.py shot.png -o shot.cleaned.png
+
+# Optional pixel removal (external backend; bootstrap first)
+scripts/setup_ctrlregen.sh
+NOAI_WATERMARK_DIR=~/noai-watermark \
+  ~/noai-watermark/.venv/bin/python scripts/clean_image.py shot.png \
+  -o shot.cleaned.png --remove-pixel ctrlregen
 
 # Aggregate audits
 python3 scripts/audit_dir.py ./src --json
