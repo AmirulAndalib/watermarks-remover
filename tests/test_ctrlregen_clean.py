@@ -223,8 +223,11 @@ def test_run_ctrlregen_clean_prefers_venv_python(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ):
     upstream = tmp_path / "upstream"
-    (upstream / ".venv" / "bin").mkdir(parents=True)
-    venv_python = upstream / ".venv" / "bin" / "python"
+    if os.name == "nt":
+        venv_python = upstream / ".venv" / "Scripts" / "python.exe"
+    else:
+        venv_python = upstream / ".venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
     venv_python.write_text("")
     captured: dict = {}
 
