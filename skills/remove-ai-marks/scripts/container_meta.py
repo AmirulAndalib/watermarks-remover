@@ -13,7 +13,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from common import which
+from common import safe_arg, which
 from image_meta import AI_META_HINTS, C2PA_MARKERS, run_optional_tools
 
 # Frontmatter / meta keys that often carry AI provenance
@@ -385,23 +385,38 @@ def _zip_namelist(data: bytes) -> list[str]:
         return zf.namelist()
 
 
+MAX_ZIP_DECOMPRESSED_BYTES = 512 * 1024 * 1024
+
+
+def _check_zip_budget(info: zipfile.ZipInfo, budget: list[int]) -> None:
+    """Reject zip bombs before decompression (ZipInfo.file_size is stored)."""
+    budget[0] += info.file_size
+    if budget[0] > MAX_ZIP_DECOMPRESSED_BYTES:
+        raise ValueError(
+            "zip decompressed size exceeds cap "
+            f"({MAX_ZIP_DECOMPRESSED_BYTES} bytes); refusing to process"
+        )
+
+
 def inspect_docx(data: bytes) -> tuple[bool, bool, list[str], dict]:
     findings: list[str] = []
     has_c2pa = False
     has_ai = False
     parts: list[str] = []
+    budget = [0]
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             parts = zf.namelist()
-            for name in parts:
-                raw = zf.read(name)
+            for info in zf.infolist():
+                _check_zip_budget(info, budget)
+                raw = zf.read(info.filename)
                 c2, ai, hits = _blob_hits(raw)
                 if c2 or ai:
                     if c2:
                         has_c2pa = True
                     if ai:
                         has_ai = True
-                    findings.append(f"{name}: {', '.join(hits[:6])}")
+                    findings.append(f"{info.filename}: {', '.join(hits[:6])}")
             # always flag customXml presence lightly
             custom = [n for n in parts if n.startswith("customXml/")]
             if custom:
@@ -414,11 +429,13 @@ def inspect_docx(data: bytes) -> tuple[bool, bool, list[str], dict]:
 def clean_docx(data: bytes) -> tuple[bytes, list[str]]:
     actions: list[str] = []
     out_buf = io.BytesIO()
+    budget = [0]
     with zipfile.ZipFile(io.BytesIO(data)) as zin, zipfile.ZipFile(
         out_buf, "w", compression=zipfile.ZIP_DEFLATED
     ) as zout:
         for info in zin.infolist():
             name = info.filename
+            _check_zip_budget(info, budget)
             raw = zin.read(name)
             # Drop entire customXml trees (often provenance injects)
             if name.startswith("customXml/"):
@@ -495,17 +512,19 @@ def inspect_odt(data: bytes) -> tuple[bool, bool, list[str], dict]:
     findings: list[str] = []
     has_c2pa = False
     has_ai = False
+    budget = [0]
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            for name in zf.namelist():
-                raw = zf.read(name)
+            for info in zf.infolist():
+                _check_zip_budget(info, budget)
+                raw = zf.read(info.filename)
                 c2, ai, hits = _blob_hits(raw)
                 if c2 or ai:
                     if c2:
                         has_c2pa = True
                     if ai:
                         has_ai = True
-                    findings.append(f"{name}: {', '.join(hits[:6])}")
+                    findings.append(f"{info.filename}: {', '.join(hits[:6])}")
             if "meta.xml" in zf.namelist():
                 meta = zf.read("meta.xml").decode("utf-8", errors="replace")
                 if re.search(r"generator|claude|openai|anthropic|gemini", meta, re.I):
@@ -519,11 +538,13 @@ def inspect_odt(data: bytes) -> tuple[bool, bool, list[str], dict]:
 def clean_odt(data: bytes) -> tuple[bytes, list[str]]:
     actions: list[str] = []
     out_buf = io.BytesIO()
+    budget = [0]
     with zipfile.ZipFile(io.BytesIO(data)) as zin, zipfile.ZipFile(
         out_buf, "w", compression=zipfile.ZIP_DEFLATED
     ) as zout:
         for info in zin.infolist():
             name = info.filename
+            _check_zip_budget(info, budget)
             raw = zin.read(name)
             if name == "meta.xml":
                 text = raw.decode("utf-8", errors="replace")
@@ -607,7 +628,7 @@ def clean_pdf(path: Path, dest: Path) -> tuple[list[str], dict]:
                     exiftool,
                     "-all=",
                     "-overwrite_original",
-                    str(dest),
+                    safe_arg(str(dest)),
                 ],
                 capture_output=True,
                 text=True,

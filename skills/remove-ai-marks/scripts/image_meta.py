@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from common import which
+from common import safe_arg, which
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
@@ -197,7 +197,7 @@ def run_optional_tools(path: Path) -> dict[str, Any]:
     if c2patool:
         try:
             r = subprocess.run(
-                [c2patool, str(path)],
+                [c2patool, safe_arg(str(path))],
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -227,7 +227,7 @@ def run_optional_tools(path: Path) -> dict[str, Any]:
     if exiftool:
         try:
             r = subprocess.run(
-                [exiftool, "-G1", "-a", "-s", str(path)],
+                [exiftool, "-G1", "-a", "-s", safe_arg(str(path))],
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -490,7 +490,7 @@ def clean_image(
                     exiftool,
                     "-all=",
                     "-overwrite_original",
-                    str(dest),
+                    safe_arg(str(dest)),
                 ],
                 capture_output=True,
                 text=True,
