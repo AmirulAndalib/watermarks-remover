@@ -10,7 +10,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from common import MAX_INPUT_BYTES, backup_path, cleaned_path, eprint, safe_write_text  # noqa: E402
+from common import (  # noqa: E402
+    MAX_INPUT_BYTES,
+    backup_path,
+    cleaned_path,
+    eprint,
+    ROUTER_ADVICE,
+    guard_binary,
+    safe_write_text,
+)
 from container_meta import clean_container, detect_container_format  # noqa: E402
 from image_meta import clean_image, detect_format as detect_image_format  # noqa: E402
 from text_unicode import clean_text  # noqa: E402
@@ -68,6 +76,11 @@ def main() -> int:
         choices=("auto", "text", "image", "container"),
         default="auto",
     )
+    p.add_argument(
+        "--force-text",
+        action="store_true",
+        help="Clean as text even when the bytes look like a binary container",
+    )
     args = p.parse_args()
 
     if not args.path.is_file():
@@ -80,6 +93,19 @@ def main() -> int:
 
     kind = args.force_type if args.force_type != "auto" else classify(args.path)
 
+    # classify() falls back to "text" for unrecognised bytes, so an unknown
+    # binary would otherwise be decoded, scrubbed and written back mangled.
+    # Sniff before --in-place takes a backup: refusing afterwards would leave a
+    # .bak sidecar behind for a file this run never touches.
+    raw = args.path.read_bytes() if kind == "text" else None
+    if raw is not None:
+        guard_binary(
+            raw,
+            str(args.path),
+            allow_binary=args.force_text,
+            advice=ROUTER_ADVICE,
+        )
+
     if args.in_place:
         bak = backup_path(args.path)
         dest = args.path
@@ -89,7 +115,7 @@ def main() -> int:
         dest = args.output or cleaned_path(args.path)
 
     if kind == "text":
-        text = src.read_text(encoding="utf-8", errors="surrogateescape")
+        text = raw.decode("utf-8", errors="surrogateescape")
         cleaned, stats = clean_text(
             text,
             nfkc=args.nfkc,

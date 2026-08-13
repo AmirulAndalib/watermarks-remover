@@ -28,9 +28,14 @@ def main() -> int:
         action="store_true",
         help="Flag emoji presentation selectors/ZWJ even after an emoji base (paranoid)",
     )
+    p.add_argument(
+        "--force-text",
+        action="store_true",
+        help="Scan even when the input looks like a binary container",
+    )
     args = p.parse_args()
 
-    text = read_text_input(args.path)
+    text = read_text_input(args.path, allow_binary=args.force_text)
     report = inspect_text(
         text,
         aggressive=args.aggressive,
