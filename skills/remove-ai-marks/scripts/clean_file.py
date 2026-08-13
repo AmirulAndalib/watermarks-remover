@@ -5,18 +5,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from common import cleaned_path, eprint  # noqa: E402
+from common import MAX_INPUT_BYTES, backup_path, cleaned_path, eprint, safe_write_text  # noqa: E402
 from container_meta import clean_container, detect_container_format  # noqa: E402
 from image_meta import clean_image, detect_format as detect_image_format  # noqa: E402
 from text_unicode import clean_text  # noqa: E402
-
-MAX_INPUT_BYTES = int(os.environ.get("WATERMARKS_MAX_INPUT_BYTES", str(1 << 30)))
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
 CONTAINER_EXTS = {".svg", ".pdf", ".docx", ".odt", ".html", ".htm", ".md", ".markdown", ".mdx"}
@@ -84,8 +81,7 @@ def main() -> int:
     kind = args.force_type if args.force_type != "auto" else classify(args.path)
 
     if args.in_place:
-        bak = args.path.with_suffix(args.path.suffix + ".bak")
-        bak.write_bytes(args.path.read_bytes())
+        bak = backup_path(args.path)
         dest = args.path
         src = bak
     else:
@@ -100,7 +96,7 @@ def main() -> int:
             aggressive_homoglyphs=args.aggressive_homoglyphs,
         )
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(cleaned, encoding="utf-8")
+        safe_write_text(dest, cleaned)
         result = {
             "kind": "text",
             "input": str(args.path),

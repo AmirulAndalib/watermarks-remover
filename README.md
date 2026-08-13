@@ -66,9 +66,11 @@ python3 "$SCRIPTS/clean_text.py" draft.md -o draft.cleaned.md --stats
 
 # Layer B rewrite hook (default: print prompt only — no model required)
 python3 "$SCRIPTS/rewrite_text.py" draft.md --backend print-prompt --strength paraphrase
-# Optional local Ollama:
+# Optional local Ollama (loopback only by default — remote endpoints require
+# WATERMARKS_REWRITE_ALLOW_REMOTE=1 or --allow-remote):
 # WATERMARKS_REWRITE_BACKEND=ollama WATERMARKS_REWRITE_MODEL=llama3.2 \
 #   python3 "$SCRIPTS/rewrite_text.py" draft.md -o draft.rewritten.md
+# API keys are read from WATERMARKS_REWRITE_API_KEY only (never argv).
 
 # Images
 python3 "$SCRIPTS/inspect_image.py" shot.png
@@ -109,7 +111,13 @@ upstream VAE bypass this project does not use).
 
 ```bash
 make docker-synthid-build
-docker run --rm -v "$(pwd):/data" watermarks-remover-synthid-scorer /data/shot.png
+# Run unprivileged and with a read-only rootfs; the scorer only needs to read
+# /data and write to stdout/tmp.
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  --read-only --tmpfs /tmp \
+  -v "$(pwd):/data" \
+  watermarks-remover-synthid-scorer /data/shot.png
 ```
 
 The image is built locally from the upstream source at build time. It is not

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from common import safe_arg, which
+from common import safe_arg, safe_write_bytes, subprocess_rlimits, which
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
@@ -201,6 +201,7 @@ def run_optional_tools(path: Path) -> dict[str, Any]:
                 capture_output=True,
                 text=True,
                 timeout=30,
+                preexec_fn=subprocess_rlimits,
             )
             out = (r.stdout or "") + (r.stderr or "")
             low = out.lower()
@@ -231,6 +232,7 @@ def run_optional_tools(path: Path) -> dict[str, Any]:
                 capture_output=True,
                 text=True,
                 timeout=30,
+                preexec_fn=subprocess_rlimits,
             )
             out = r.stdout or ""
             interesting = [
@@ -277,7 +279,13 @@ def run_synthid_score(
         "--json",
     ]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        r = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            preexec_fn=subprocess_rlimits,
+        )
     except Exception as e:
         return {"available": False, "error": str(e)}
 
@@ -480,8 +488,7 @@ def clean_image(
         raise ValueError(f"unsupported format: {fmt}")
 
     # Optional exiftool pass for residual tags
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(cleaned)
+    safe_write_bytes(dest, cleaned)
     exiftool = which("exiftool")
     if exiftool and strip_all_metadata:
         try:
@@ -496,6 +503,7 @@ def clean_image(
                 text=True,
                 timeout=60,
                 check=False,
+                preexec_fn=subprocess_rlimits,
             )
             actions.append("exiftool -all= pass")
         except Exception as e:

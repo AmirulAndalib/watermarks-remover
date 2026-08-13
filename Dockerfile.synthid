@@ -11,6 +11,9 @@
 #   - base image pinned by digest (no moving tag drift)
 #   - upstream checkout pinned to a commit SHA (no moving branch)
 #   - deps pinned exactly in requirements-synthid-scorer.txt
+#   - pip itself pinned (no unpinned bootstrap step)
+#   - runs as an unprivileged user (a parser bug in a crafted image can no
+#     longer write files as root inside the container)
 
 # Pinned upstream commit (2026-07-17). Keep in sync with setup_synthid.sh.
 ARG REVERSE_SYNTHID_REF=b11083676fd3ee3ff97ce9d03c0e409e46905902
@@ -25,6 +28,7 @@ RUN apt-get update \
         git \
         libgl1 \
         libglib2.0-0 \
+        passwd \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone --depth 1 --filter=blob:none --sparse \
@@ -42,9 +46,18 @@ RUN git clone --depth 1 --filter=blob:none --sparse \
 COPY skills/remove-ai-marks/scripts/requirements-synthid-scorer.txt /app/requirements-synthid-scorer.txt
 COPY skills/remove-ai-marks/scripts/score_synthid.py /app/score_synthid.py
 
-RUN pip install --no-cache-dir -r /app/requirements-synthid-scorer.txt
+RUN python3 -m pip install --no-cache-dir "pip==26.2.1" \
+    && python3 -m pip install --no-cache-dir -r /app/requirements-synthid-scorer.txt
 
-ENV REVERSE_SYNTHID_DIR=/opt/reverse-synthid
+# Unprivileged runtime user. The scorer only reads input files and writes to
+# stdout, so nothing under /opt, /app, or the mounted data dir needs root.
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin scorer
+USER scorer
+
+ENV REVERSE_SYNTHID_DIR=/opt/reverse-synthid \
+    HOME=/home/scorer \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
 ENTRYPOINT ["python3", "/app/score_synthid.py"]

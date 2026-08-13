@@ -113,6 +113,9 @@ export WATERMARKS_REWRITE_BACKEND=ollama
 export WATERMARKS_REWRITE_MODEL=llama3.2
 export WATERMARKS_REWRITE_BASE_URL=http://127.0.0.1:11434
 python3 "$SCRIPTS/rewrite_text.py" draft.md -o draft.rewritten.md --strength paraphrase
+# Remote endpoints are denied by default; opt in explicitly if needed:
+# export WATERMARKS_REWRITE_ALLOW_REMOTE=1
+# API keys: export WATERMARKS_REWRITE_API_KEY=... (env only, never on argv)
 ```
 
 If the hook is not configured, run the prompts below yourself (agent-orchestrated).

@@ -1,8 +1,12 @@
-"""Tests for Layer B rewrite_text hook (offline / print-prompt)."""
+"""Tests for Layer B rewrite_text hook (offline / print-prompt + client hardening)."""
 
 from __future__ import annotations
 
+import http.server
 import sys
+import threading
+import time
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -11,7 +15,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "skills" / "remove-ai-marks" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+import rewrite_text  # noqa: E402
 from rewrite_text import (  # noqa: E402
+    _check_remote,
+    _flag_env,
     _lexical_divergence,
     _select_candidate,
     build_prompt,
@@ -101,3 +108,115 @@ def test_select_candidate_prefers_more_divergent():
     )
     assert best == "alpha beta gamma delta"
     assert len(scores) == 3
+
+
+# ---------------------------------------------------------------------------
+# HTTP client hardening: default-deny allowlist, scheme guard, no redirects
+# ---------------------------------------------------------------------------
+
+
+def _rewrite_http_kwargs(base_url: str, **overrides):
+    kwargs = dict(
+        backend="openai-compatible",
+        model="m",
+        base_url=base_url,
+        api_key="sk-test-key-123",
+        strength="paraphrase",
+        lang="French",
+        original_lang="English",
+        timeout=5.0,
+        layer_a_after=False,
+        temperature=0.9,
+        candidates=1,
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+def test_check_remote_loopback_allowed_without_opt_in():
+    # Must not raise.
+    _check_remote("http://127.0.0.1:11434", allow_remote=False)
+    _check_remote("http://localhost:11434", allow_remote=False)
+    _check_remote("http://[::1]:11434", allow_remote=False)
+
+
+def test_check_remote_denies_non_loopback_without_opt_in():
+    with pytest.raises(SystemExit):
+        _check_remote("http://example.com:11434", allow_remote=False)
+
+
+def test_check_remote_allows_non_loopback_with_opt_in(capsys):
+    _check_remote("http://example.com:11434", allow_remote=True)
+    err = capsys.readouterr().err
+    assert "content will leave this machine" in err
+
+
+def test_check_remote_denies_non_http_scheme():
+    with pytest.raises(SystemExit):
+        _check_remote("file:///etc/passwd", allow_remote=True)
+
+
+def test_flag_env(monkeypatch):
+    assert not _flag_env("WATERMARKS_REWRITE_ALLOW_REMOTE")
+    monkeypatch.setenv("WATERMARKS_REWRITE_ALLOW_REMOTE", "1")
+    assert _flag_env("WATERMARKS_REWRITE_ALLOW_REMOTE")
+    monkeypatch.setenv("WATERMARKS_REWRITE_ALLOW_REMOTE", "true")
+    assert _flag_env("WATERMARKS_REWRITE_ALLOW_REMOTE")
+    monkeypatch.setenv("WATERMARKS_REWRITE_ALLOW_REMOTE", "0")
+    assert not _flag_env("WATERMARKS_REWRITE_ALLOW_REMOTE")
+
+
+def test_rewrite_denies_remote_host_without_opt_in():
+    with pytest.raises(SystemExit):
+        rewrite("secret text", **_rewrite_http_kwargs("http://example.com:11434"))
+
+
+def test_rewrite_blocks_redirect_and_never_sends_key():
+    """A 302 from the (loopback) endpoint must not re-send the API key to the
+    redirect target — the request must fail instead."""
+    state: dict = {"collector_port": None}
+    captured: dict = {}
+
+    class Redirector(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.send_response(302)
+            self.send_header(
+                "Location",
+                f"http://127.0.0.1:{state['collector_port']}/collect",
+            )
+            self.end_headers()
+
+        def log_message(self, format, *args):  # noqa: A002
+            pass
+
+    class Collector(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            captured["auth"] = self.headers.get("Authorization")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                b'{"choices": [{"message": {"content": "rewritten"}}]}'
+            )
+
+        def log_message(self, format, *args):  # noqa: A002
+            pass
+
+    collector = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Collector)
+    redirector = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Redirector)
+    state["collector_port"] = collector.server_address[1]
+    threading.Thread(target=collector.serve_forever, daemon=True).start()
+    threading.Thread(target=redirector.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises(urllib.error.HTTPError):
+            rewrite(
+                "secret text",
+                **_rewrite_http_kwargs(
+                    f"http://127.0.0.1:{redirector.server_address[1]}"
+                ),
+            )
+        time.sleep(0.2)
+        assert captured == {}, "redirect target received a request (key leak?)"
+    finally:
+        collector.shutdown()
+        redirector.shutdown()

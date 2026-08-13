@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from common import cleaned_path, eprint  # noqa: E402
+from common import backup_path, cleaned_path, eprint  # noqa: E402
 from image_meta import clean_image  # noqa: E402
 
 
@@ -43,8 +43,7 @@ def main() -> int:
 
     src = args.path
     if args.in_place:
-        bak = args.path.with_suffix(args.path.suffix + ".bak")
-        bak.write_bytes(args.path.read_bytes())
+        bak = backup_path(args.path)
         src = bak
         dest = args.path
     else:

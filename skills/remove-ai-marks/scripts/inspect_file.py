@@ -4,19 +4,16 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from common import emit_json, eprint, read_text_input  # noqa: E402
+from common import MAX_INPUT_BYTES, emit_json, eprint, read_text_input  # noqa: E402
 from container_meta import detect_container_format, inspect_container  # noqa: E402
 from image_meta import detect_format as detect_image_format  # noqa: E402
 from image_meta import inspect_image  # noqa: E402
 from text_unicode import human_report, inspect_text  # noqa: E402
-
-MAX_INPUT_BYTES = int(os.environ.get("WATERMARKS_MAX_INPUT_BYTES", str(1 << 30)))
 
 TEXT_EXTS = {".txt", ".text", ".md", ".markdown", ".mdx", ".html", ".htm", ".css", ".js", ".py", ".rs", ".go", ".json", ".yaml", ".yml", ".toml", ".csv"}
 IMAGE_EXTS = {".png", ".jpg", ".jpeg"}

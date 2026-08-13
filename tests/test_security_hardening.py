@@ -1,4 +1,4 @@
-"""Tests for the cleaners security hardening (safe argv, resource caps)."""
+"""Tests for the cleaners security hardening (safe argv, resource caps, safe writes)."""
 
 from __future__ import annotations
 
@@ -7,11 +7,20 @@ import sys
 import zipfile
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "skills" / "remove-ai-marks" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from common import safe_arg  # noqa: E402
+import common  # noqa: E402
+from common import (  # noqa: E402
+    backup_path,
+    read_text_input,
+    safe_arg,
+    safe_write_bytes,
+    safe_write_text,
+)
 from container_meta import (  # noqa: E402
     MAX_ZIP_DECOMPRESSED_BYTES,
     _check_zip_budget,
@@ -82,3 +91,82 @@ def test_inspect_docx_with_ai_markers_does_not_crash():
     assert has_ai
     assert findings
     assert not has_c2pa or has_ai
+
+
+# ---------------------------------------------------------------------------
+# Safe (atomic, symlink-safe) writes
+# ---------------------------------------------------------------------------
+
+
+def test_safe_write_refuses_symlink_destination(tmp_path: Path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("PRECIOUS DATA")
+    dest = tmp_path / "out.txt"
+    dest.symlink_to(victim)
+    with pytest.raises(OSError):
+        safe_write_text(dest, "cleaned content")
+    # The victim must be untouched and no temp litter may remain.
+    assert victim.read_text() == "PRECIOUS DATA"
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_safe_write_atomically_replaces_existing_file(tmp_path: Path):
+    dest = tmp_path / "out.txt"
+    safe_write_text(dest, "first")
+    safe_write_text(dest, "second")
+    assert dest.read_text() == "second"
+    # No stray temp files after a successful write.
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_safe_write_bytes_creates_parent_dirs(tmp_path: Path):
+    dest = tmp_path / "a" / "b" / "out.bin"
+    safe_write_bytes(dest, b"\x00\x01")
+    assert dest.read_bytes() == b"\x00\x01"
+
+
+def test_backup_path_creates_bak_copy(tmp_path: Path):
+    src = tmp_path / "doc.md"
+    src.write_text("body")
+    bak = backup_path(src)
+    assert bak.name == "doc.md.bak"
+    assert bak.read_text() == "body"
+    assert src.read_text() == "body"
+
+
+def test_backup_path_refuses_symlinked_bak(tmp_path: Path):
+    src = tmp_path / "doc.md"
+    src.write_text("body")
+    bak = tmp_path / "doc.md.bak"
+    victim = tmp_path / "victim.txt"
+    victim.write_text("PRECIOUS")
+    bak.symlink_to(victim)
+    with pytest.raises(SystemExit):
+        backup_path(src)
+    assert victim.read_text() == "PRECIOUS"
+
+
+# ---------------------------------------------------------------------------
+# Input size caps (stdin + file)
+# ---------------------------------------------------------------------------
+
+
+def test_read_text_input_refuses_oversized_file(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(common, "MAX_INPUT_BYTES", 8)
+    big = tmp_path / "big.txt"
+    big.write_text("x" * 64)
+    with pytest.raises(SystemExit):
+        read_text_input(str(big))
+
+
+def test_read_stdin_capped(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(common, "MAX_STDIN_BYTES", 16)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("x" * 64))
+    with pytest.raises(SystemExit):
+        read_text_input(None)
+
+
+def test_read_stdin_under_cap_ok(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(common, "MAX_STDIN_BYTES", 1024)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("hello stdin"))
+    assert read_text_input(None) == "hello stdin"

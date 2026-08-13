@@ -13,7 +13,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from common import safe_arg, which
+from common import safe_arg, safe_write_bytes, safe_write_text, subprocess_rlimits, which
 from image_meta import AI_META_HINTS, C2PA_MARKERS, run_optional_tools
 
 # Frontmatter / meta keys that often carry AI provenance
@@ -385,7 +385,7 @@ def _zip_namelist(data: bytes) -> list[str]:
         return zf.namelist()
 
 
-MAX_ZIP_DECOMPRESSED_BYTES = 512 * 1024 * 1024
+MAX_ZIP_DECOMPRESSED_BYTES = 128 * 1024 * 1024
 
 
 def _check_zip_budget(info: zipfile.ZipInfo, budget: list[int]) -> None:
@@ -621,7 +621,7 @@ def clean_pdf(path: Path, dest: Path) -> tuple[list[str], dict]:
 
     exiftool = which("exiftool")
     if exiftool:
-        dest.write_bytes(data)
+        safe_write_bytes(dest, data)
         try:
             r = subprocess.run(
                 [
@@ -634,6 +634,7 @@ def clean_pdf(path: Path, dest: Path) -> tuple[list[str], dict]:
                 text=True,
                 timeout=60,
                 check=False,
+                preexec_fn=subprocess_rlimits,
             )
             actions.append(f"exiftool -all= (rc={r.returncode})")
         except Exception as e:
@@ -655,11 +656,11 @@ def clean_pdf(path: Path, dest: Path) -> tuple[list[str], dict]:
     if n:
         actions.append(f"stripped XMP xpacket x{n} (degraded; may leave offsets broken)")
         # PDF structural risk: document degraded mode clearly
-        dest.write_bytes(new)
+        safe_write_bytes(dest, new)
         actions.append("warning: pure-stdlib PDF strip is best-effort; prefer exiftool")
         return actions, {"mode": "stdlib-xmp", "degraded": True}
 
-    dest.write_bytes(data)
+    safe_write_bytes(dest, data)
     actions.append(
         "no PDF cleaner available (install exiftool for reliable metadata strip); copied as-is"
     )
@@ -725,16 +726,16 @@ def clean_container(
 
     if fmt == "svg":
         cleaned, actions = clean_svg(data)
-        dest.write_bytes(cleaned)
+        safe_write_bytes(dest, cleaned)
     elif fmt == "pdf":
         actions, meta_extra = clean_pdf(path, dest)
         meta.update(meta_extra)
     elif fmt == "docx":
         cleaned, actions = clean_docx(data)
-        dest.write_bytes(cleaned)
+        safe_write_bytes(dest, cleaned)
     elif fmt == "odt":
         cleaned, actions = clean_odt(data)
-        dest.write_bytes(cleaned)
+        safe_write_bytes(dest, cleaned)
     elif fmt == "html":
         text = data.decode("utf-8", errors="surrogateescape")
         text, actions = clean_html(text)
@@ -745,7 +746,7 @@ def clean_container(
                     f"layer A text: removed={stats['removed_count']} replaced={stats['replaced_count']}"
                 )
                 text = text2
-        dest.write_text(text, encoding="utf-8")
+        safe_write_text(dest, text)
     elif fmt == "markdown":
         text = data.decode("utf-8", errors="surrogateescape")
         text, actions = clean_markdown(text)
@@ -756,7 +757,7 @@ def clean_container(
                     f"layer A text: removed={stats['removed_count']} replaced={stats['replaced_count']}"
                 )
                 text = text2
-        dest.write_text(text, encoding="utf-8")
+        safe_write_text(dest, text)
     else:
         raise ValueError(f"unsupported container format: {fmt}")
 

@@ -96,7 +96,8 @@ if [[ ! -x "$DIR/.venv/bin/python" ]]; then
 fi
 
 echo "Installing Python dependencies"
-"$DIR/.venv/bin/python" -m pip install --upgrade pip
+# Pin pip itself (unpinned --upgrade pip was a supply-chain drift point).
+"$DIR/.venv/bin/python" -m pip install --upgrade "pip==26.2.1"
 if [[ "$FULL" -eq 1 ]]; then
   echo "Installing full upstream requirements.txt (includes torch/diffusers)"
   "$DIR/.venv/bin/python" -m pip install -r "$DIR/requirements.txt"
