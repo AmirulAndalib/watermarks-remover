@@ -23,10 +23,19 @@ def main() -> int:
         action="store_true",
         help="Also flag Latin confusable / fullwidth lookalikes",
     )
+    p.add_argument(
+        "--strip-emoji-glue",
+        action="store_true",
+        help="Flag emoji presentation selectors/ZWJ even after an emoji base (paranoid)",
+    )
     args = p.parse_args()
 
     text = read_text_input(args.path)
-    report = inspect_text(text, aggressive=args.aggressive)
+    report = inspect_text(
+        text,
+        aggressive=args.aggressive,
+        strip_emoji_glue=args.strip_emoji_glue,
+    )
     if args.json:
         emit_json(report.to_dict())
     else:

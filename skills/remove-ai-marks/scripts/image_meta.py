@@ -63,6 +63,7 @@ class ImageInspectReport:
     findings: list[str] = field(default_factory=list)
     tools: dict[str, Any] = field(default_factory=dict)
     synthid: dict[str, Any] | None = None
+    notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +74,7 @@ class ImageInspectReport:
             "findings": self.findings,
             "tools": self.tools,
             "synthid": self.synthid,
+            "notes": self.notes,
         }
 
 
@@ -312,6 +314,10 @@ def inspect_image(
     else:
         has_c2pa, has_ai, findings = False, False, ["unsupported format (MVP: PNG/JPEG)"]
 
+    notes: list[str] = []
+    if fmt == "unknown":
+        notes.append("format not fully inspected; only PNG/JPEG are supported")
+
     tools = run_optional_tools(path)
     # Elevate flags from tools
     ct = tools.get("c2patool") or {}
@@ -327,6 +333,7 @@ def inspect_image(
         findings=findings,
         tools=tools,
         synthid=run_synthid_score(path, synthid_dir),
+        notes=notes,
     )
 
 
