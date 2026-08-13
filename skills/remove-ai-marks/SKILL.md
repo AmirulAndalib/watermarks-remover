@@ -33,6 +33,8 @@ python3 "$SCRIPTS/clean_text.py" ...
 python3 "$SCRIPTS/inspect_image.py" ...
 python3 "$SCRIPTS/clean_image.py" ...
 python3 "$SCRIPTS/rewrite_text.py" ...
+python3 "$SCRIPTS/audit_dir.py" ...
+python3 "$SCRIPTS/audit_website.py" ...
 ```
 
 ## Ethics
@@ -50,7 +52,8 @@ Intended for **your own** content (privacy, hygiene, research). Do not market re
 | `.md` / `.html` | container clean (frontmatter/meta) + Layer A |
 | `.png` / `.jpg` / `.jpeg` | image metadata strip |
 | `.svg` / `.pdf` / `.docx` / `.odt` | container metadata strip |
-| Directory | batch each matching file |
+| Directory | aggregate report with `audit_dir.py` |
+| Website / sitemap | aggregate report with `audit_website.py` |
 | Mixed | run unified `inspect_file` / `clean_file` |
 
 ### 2. Inspect first
@@ -69,6 +72,27 @@ Optional: when `REVERSE_SYNTHID_DIR` is set, `inspect_image.py` and
 external reverse-SynthID scorer. That is **detection only**, not removal.
 Bootstrap the external checkout with `scripts/setup_synthid.sh`, or build a
 local image with `make docker-synthid-build`.
+
+### Aggregate audits and confidence
+
+Findings are classified as **confirmed**, **probable**, **informational**, or
+**likely_false_positive**. Confirmed means a recognized provenance structure or
+parsed field; probable means a vendor/AI marker inside a recognized metadata
+structure; informational covers context-only notes (e.g. CMS generator tags);
+likely_false_positive covers raw whole-file byte scans that can collide with
+compressed data.
+
+Audit a whole tree or a live sitemap for an aggregate report:
+
+```bash
+python3 "$SCRIPTS/audit_dir.py" DIR --json
+python3 "$SCRIPTS/audit_website.py" --sitemap https://example.com/sitemap.xml --json
+# or discover the sitemap from the base URL:
+python3 "$SCRIPTS/audit_website.py" --base https://example.com --json
+```
+
+`audit_website.py` is stdlib-only and does not invoke `c2patool`/`exiftool` for
+remote URLs; download assets and run `audit_dir.py` locally for those.
 
 ### 3. Deterministic clean (always for matching inputs)
 
@@ -225,4 +249,8 @@ python3 scripts/rewrite_text.py notes.md --backend print-prompt --strength parap
 # Images only
 python3 scripts/inspect_image.py shot.png
 python3 scripts/clean_image.py shot.png -o shot.cleaned.png
+
+# Aggregate audits
+python3 scripts/audit_dir.py ./src --json
+python3 scripts/audit_website.py --sitemap https://example.com/sitemap.xml --json
 ```

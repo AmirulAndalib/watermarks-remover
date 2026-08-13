@@ -277,6 +277,11 @@ def _char_label(ch: str) -> str:
     return f"U+{cp:04X} {name} ({cat})"
 
 
+def _hit_confidence(kind: str) -> str:
+    """Layer A hits are edit-based carriers; space homoglyphs are weaker context."""
+    return "informational" if kind == "space" else "probable"
+
+
 @dataclass
 class CharHit:
     codepoint: int
@@ -304,6 +309,7 @@ class TextInspectReport:
                     "label": h.label,
                     "count": h.count,
                     "kind": h.kind,
+                    "confidence": _hit_confidence(h.kind),
                     "sample_offsets": h.samples[:10],
                 }
                 for h in self.hits
@@ -434,7 +440,10 @@ def human_report(report: TextInspectReport) -> str:
     if report.hits:
         lines.append("Hits:")
         for h in report.hits:
-            lines.append(f"  [{h.kind}] {h.label} x{h.count} @ {h.samples[:5]}")
+            lines.append(
+                f"  [{h.kind}/{_hit_confidence(h.kind)}] "
+                f"{h.label} x{h.count} @ {h.samples[:5]}"
+            )
     for n in report.notes:
         lines.append(f"Note: {n}")
     return "\n".join(lines)

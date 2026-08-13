@@ -13,7 +13,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from common import safe_arg, safe_write_bytes, safe_write_text, subprocess_preexec_fn, which
+from common import classify_finding_confidence, safe_arg, safe_write_bytes, safe_write_text, subprocess_preexec_fn, which
 from image_meta import AI_META_HINTS, C2PA_MARKERS, run_optional_tools
 
 # Frontmatter / meta keys that often carry AI provenance
@@ -75,6 +75,9 @@ class ContainerInspectReport:
             "has_c2pa": self.has_c2pa,
             "has_ai_metadata": self.has_ai_metadata,
             "findings": self.findings,
+            "findings_confidence": [
+                classify_finding_confidence(f) for f in self.findings
+            ],
             "tools": self.tools,
             "details": self.details,
             "notes": self.notes,

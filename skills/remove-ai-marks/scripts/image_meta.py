@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from common import safe_arg, safe_write_bytes, subprocess_preexec_fn, which
+from common import classify_finding_confidence, safe_arg, safe_write_bytes, subprocess_preexec_fn, which
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
@@ -72,6 +72,9 @@ class ImageInspectReport:
             "has_c2pa": self.has_c2pa,
             "has_ai_metadata": self.has_ai_metadata,
             "findings": self.findings,
+            "findings_confidence": [
+                classify_finding_confidence(f) for f in self.findings
+            ],
             "tools": self.tools,
             "synthid": self.synthid,
             "notes": self.notes,

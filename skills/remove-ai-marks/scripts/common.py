@@ -177,6 +177,96 @@ def emit_json(data: Any) -> None:
     sys.stdout.write("\n")
 
 
+CONFIDENCE_LEVELS = (
+    "confirmed",
+    "probable",
+    "informational",
+    "likely_false_positive",
+)
+
+
+def classify_finding_confidence(finding: str) -> str:
+    """Classify a scanner finding by confidence.
+
+    The four buckets are a heuristic mapping of *how strong* a finding is:
+
+    - confirmed: a recognized provenance structure (C2PA/JUMBF manifest, or a
+      parsed field such as digitalSourceType / trainedAlgorithmicMedia).
+    - probable: an AI/vendor marker found inside a recognized metadata
+      structure, but not a fully parsed provenance claim.
+    - informational: context-only notes (CMS generators, presence of an XMP
+      packet or customXml parts, unsupported/partial inspection).
+    - likely_false_positive: raw whole-file byte scans that can collide with
+      compressed image/stream data.
+
+    The mapping is intentionally conservative; a scanner finding is a signal,
+    not a verdict.
+    """
+    t = finding.lower()
+
+    if any(
+        s in t
+        for s in (
+            "c2patool reports",
+            "c2pa-related manifest",
+            "png chunk c2",
+            "png chunk cabx",
+            "png chunk jumb",
+            "png chunk jumd",
+            "jpeg app11 segment",
+            "digital_source_type",
+            "digitalsourcetype",
+            "trainedalgorithmicmedia",
+            "compositewithtrainedalgorithmicmedia",
+            "softwareagent",
+        )
+    ):
+        return "confirmed"
+
+    if t.startswith("info:") or any(
+        s in t
+        for s in (
+            "cms generator",
+            "customxml parts",
+            "xmp packet present",
+            "unsupported",
+            "not fully inspected",
+            "format not",
+            "svg <metadata> present",
+            "not a valid",
+            "truncated chunk",
+            "bad segment length",
+            "svg decode note",
+        )
+    ):
+        return "informational"
+
+    if "byte-scan" in t:
+        return "likely_false_positive"
+
+    if any(
+        s in t
+        for s in (
+            "ai:",
+            "marker:",
+            "meta:",
+            "frontmatter",
+            "json-ld",
+            "attr:",
+            "png ",
+            "jpeg app",
+            "exif",
+            "xmp",
+            "interesting",
+            "pdf-structured",
+            "layer-a",
+        )
+    ):
+        return "probable"
+
+    return "informational"
+
+
 def cleaned_path(src: Path, suffix: str = ".cleaned") -> Path:
     """path/to/file.ext -> path/to/file.cleaned.ext"""
     return src.with_name(f"{src.stem}{suffix}{src.suffix}")
