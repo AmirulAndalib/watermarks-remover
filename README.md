@@ -10,6 +10,8 @@ _ _ _ ____ ___ ____ ____ _  _ ____ ____ _  _ ____    ____ ____ _  _ ____ _  _ __
 
 [![CI](https://github.com/guillaumemeyer/watermarks-remover/actions/workflows/ci.yml/badge.svg)](https://github.com/guillaumemeyer/watermarks-remover/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/guillaumemeyer/watermarks-remover)](https://github.com/guillaumemeyer/watermarks-remover/releases)
+[![Stars](https://img.shields.io/github/stars/guillaumemeyer/watermarks-remover)](https://github.com/guillaumemeyer/watermarks-remover/stargazers)
+[![Forks](https://img.shields.io/github/forks/guillaumemeyer/watermarks-remover)](https://github.com/guillaumemeyer/watermarks-remover/forks)
 
 Agent skill + stdlib Python scripts to strip **multi-vendor AI provenance marks** from text and files — for privacy and hygiene on content **you own**.
 
@@ -400,16 +402,6 @@ make smoke                          # quick CLI smoke on fixtures
 - Unified `inspect_file.py` / `clean_file.py`
 - Multi-vendor docs (Claude, Gemini/SynthID-class, OpenAI, open-LLM)
 - Stdlib-first scripts; optional `c2patool` / `exiftool`
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=guillaumemeyer%2Fwatermarks-remover&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=guillaumemeyer/watermarks-remover&type=date&theme=dark&legend=top-left&sealed_token=OLC1f1vbYBuk_xFR_ZH94jbC46Ci9cOhtXLcLIel7gnWVpQu7g-92es0u5d7IV2249FGEO6O7upS8xR_EGk_CwkVXq5yhS77M6zI5hMF7byS4eL6q1-cHU2IOPvUIJ7L3ZqBsV1GVGyXRIzHfeJJxBVBjD9mY0aQcrnUl6dmDf7laUcwYm188_SL_ZfK" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=guillaumemeyer/watermarks-remover&type=date&legend=top-left&sealed_token=OLC1f1vbYBuk_xFR_ZH94jbC46Ci9cOhtXLcLIel7gnWVpQu7g-92es0u5d7IV2249FGEO6O7upS8xR_EGk_CwkVXq5yhS77M6zI5hMF7byS4eL6q1-cHU2IOPvUIJ7L3ZqBsV1GVGyXRIzHfeJJxBVBjD9mY0aQcrnUl6dmDf7laUcwYm188_SL_ZfK" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=guillaumemeyer/watermarks-remover&type=date&legend=top-left&sealed_token=OLC1f1vbYBuk_xFR_ZH94jbC46Ci9cOhtXLcLIel7gnWVpQu7g-92es0u5d7IV2249FGEO6O7upS8xR_EGk_CwkVXq5yhS77M6zI5hMF7byS4eL6q1-cHU2IOPvUIJ7L3ZqBsV1GVGyXRIzHfeJJxBVBjD9mY0aQcrnUl6dmDf7laUcwYm188_SL_ZfK" />
- </picture>
-</a>
 
 ## License
 
