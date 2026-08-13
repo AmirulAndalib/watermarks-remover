@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -31,9 +32,25 @@ from text_unicode import clean_text  # noqa: E402
 
 PROMPTS = {
     "paraphrase": (
-        "Rewrite the following text so that every sentence uses different wording and "
-        "structure while preserving all facts, numbers, names, and technical identifiers. "
-        "Do not add or remove claims. Output only the rewritten text.\n\n---\n{TEXT}"
+        "Rewrite the following text so that it uses substantially different wording at "
+        "the token level. Change clause order, connectors, and transition words; vary "
+        "sentence boundaries and length; and replace both content words and function "
+        "words where meaning allows. Preserve all facts, numbers, names, and technical "
+        "identifiers. Do not add or remove claims. Output only the rewritten text.\n\n---\n{TEXT}"
+    ),
+    "humanize": (
+        "Rewrite the following text so it reads as if a human wrote it from scratch. "
+        "Vary sentence rhythm and length, replace formulaic AI-style transitions and "
+        "filler with concrete natural phrasing, and use plain, varied wording. Preserve "
+        "all facts, numbers, names, and technical identifiers. Do not add or remove "
+        "claims. Output only the rewritten text.\n\n---\n{TEXT}"
+    ),
+    "code": (
+        "Rewrite the natural-language parts of this code — comments, docstrings, and "
+        "string literals — using different wording. Rename local variables, function "
+        "parameters, and private helper names to semantically equivalent names. Preserve "
+        "program behavior, public API names, and all values that affect output. Output "
+        "only the rewritten code.\n\n---\n{TEXT}"
     ),
     "backtranslate_out": (
         "Translate the following text to {LANG}. Output only the translation.\n\n---\n{TEXT}"
@@ -47,10 +64,49 @@ PROMPTS = {
         "(no full sentences). Output only the outline.\n\n---\n{TEXT}"
     ),
     "structural_write": (
-        "Write a complete document from this outline in a clear professional style. "
-        "Do not omit any bullet. Output only the document.\n\n---\n{TEXT}"
+        "Write a complete document from this outline in natural, varied human prose. "
+        "Avoid formulaic transitions. Do not omit any bullet. Output only the document."
+        "\n\n---\n{TEXT}"
     ),
 }
+
+
+def _tokens(text: str) -> list[str]:
+    return re.findall(r"[A-Za-z0-9]+", text.lower())
+
+
+def _bigrams(tokens: list[str]) -> set[tuple[str, str]]:
+    return set(zip(tokens, tokens[1:]))
+
+
+def _lexical_divergence(original: str, candidate: str) -> float:
+    """Bigram Jaccard distance: 0.0 identical, 1.0 fully different."""
+    a = _tokens(original)
+    b = _tokens(candidate)
+    if not a and not b:
+        return 0.0
+    if not a or not b:
+        return 1.0
+    ba = _bigrams(a)
+    bb = _bigrams(b)
+    union = ba | bb
+    if not union:
+        return 0.0
+    return 1.0 - len(ba & bb) / len(union)
+
+
+def _select_candidate(original: str, candidates: list[str]) -> tuple[str, list[float]]:
+    """Pick the most lexically diverged rewrite, gently guarding extreme length drift."""
+    scores: list[float] = []
+    for cand in candidates:
+        score = _lexical_divergence(original, cand)
+        if original:
+            ratio = len(cand) / len(original)
+            if ratio > 2.0 or ratio < 0.5:
+                score -= 0.15
+        scores.append(score)
+    best_idx = max(range(len(candidates)), key=lambda i: scores[i])
+    return candidates[best_idx], scores
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -72,6 +128,10 @@ def _warn_remote(base_url: str) -> None:
 def build_prompt(strength: str, text: str, *, lang: str, original_lang: str) -> str:
     if strength == "paraphrase":
         return PROMPTS["paraphrase"].format(TEXT=text)
+    if strength == "humanize":
+        return PROMPTS["humanize"].format(TEXT=text)
+    if strength == "code":
+        return PROMPTS["code"].format(TEXT=text)
     if strength == "backtranslate":
         # single combined instruction for print-prompt / one-shot backends
         return (
@@ -82,8 +142,8 @@ def build_prompt(strength: str, text: str, *, lang: str, original_lang: str) -> 
     if strength == "structural":
         return (
             "First extract a bullet outline of all claims (no full sentences). "
-            "Then write a complete document from that outline in a clear professional style "
-            "without omitting any bullet. Output only the final document.\n\n---\n"
+            "Then write a complete document from that outline in natural, varied human "
+            "prose without omitting any bullet. Output only the final document.\n\n---\n"
             f"{text}"
         )
     raise ValueError(f"unknown strength: {strength}")
@@ -101,7 +161,9 @@ def _http_json(url: str, payload: dict, headers: dict[str, str], timeout: float)
         return json.loads(resp.read().decode("utf-8"))
 
 
-def call_ollama(base_url: str, model: str, prompt: str, timeout: float) -> str:
+def call_ollama(
+    base_url: str, model: str, prompt: str, timeout: float, temperature: float
+) -> str:
     url = base_url.rstrip("/") + "/api/chat"
     data = _http_json(
         url,
@@ -109,6 +171,7 @@ def call_ollama(base_url: str, model: str, prompt: str, timeout: float) -> str:
             "model": model,
             "stream": False,
             "messages": [{"role": "user", "content": prompt}],
+            "options": {"temperature": temperature},
         },
         {},
         timeout,
@@ -121,7 +184,12 @@ def call_ollama(base_url: str, model: str, prompt: str, timeout: float) -> str:
 
 
 def call_openai_compatible(
-    base_url: str, model: str, prompt: str, api_key: str | None, timeout: float
+    base_url: str,
+    model: str,
+    prompt: str,
+    api_key: str | None,
+    timeout: float,
+    temperature: float,
 ) -> str:
     url = base_url.rstrip("/") + "/v1/chat/completions"
     headers: dict[str, str] = {}
@@ -132,7 +200,7 @@ def call_openai_compatible(
         {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.7,
+            "temperature": temperature,
         },
         headers,
         timeout,
@@ -158,6 +226,8 @@ def rewrite(
     original_lang: str,
     timeout: float,
     layer_a_after: bool,
+    temperature: float,
+    candidates: int,
 ) -> tuple[str, dict]:
     prompt = build_prompt(strength, text, lang=lang, original_lang=original_lang)
     info: dict = {
@@ -165,12 +235,15 @@ def rewrite(
         "strength": strength,
         "model": model,
         "base_url": base_url,
+        "temperature": temperature,
         "prompt_chars": len(prompt),
         "input_chars": len(text),
     }
 
     if backend == "print-prompt":
         info["mode"] = "print-prompt"
+        if candidates > 1:
+            eprint("note: --candidates ignored in print-prompt mode")
         return prompt, info
 
     if not model:
@@ -180,12 +253,24 @@ def rewrite(
 
     _warn_remote(base_url)
 
-    if backend == "ollama":
-        out = call_ollama(base_url, model, prompt, timeout)
-    elif backend == "openai-compatible":
-        out = call_openai_compatible(base_url, model, prompt, api_key, timeout)
+    n = max(1, candidates)
+    outs: list[str] = []
+    for _ in range(n):
+        if backend == "ollama":
+            outs.append(call_ollama(base_url, model, prompt, timeout, temperature))
+        elif backend == "openai-compatible":
+            outs.append(
+                call_openai_compatible(base_url, model, prompt, api_key, timeout, temperature)
+            )
+        else:
+            raise SystemExit(f"unknown backend: {backend}")
+
+    if len(outs) == 1:
+        out = outs[0]
     else:
-        raise SystemExit(f"unknown backend: {backend}")
+        info["candidates"] = n
+        out, scores = _select_candidate(text, outs)
+        info["candidate_scores"] = scores
 
     if layer_a_after:
         out, stats = clean_text(out)
@@ -217,12 +302,24 @@ def main() -> int:
     p.add_argument("--api-key", default=_env("WATERMARKS_REWRITE_API_KEY"))
     p.add_argument(
         "--strength",
-        choices=("paraphrase", "backtranslate", "structural"),
+        choices=("paraphrase", "backtranslate", "structural", "humanize", "code"),
         default="paraphrase",
     )
     p.add_argument("--lang", default="French", help="Pivot language for backtranslate")
     p.add_argument("--original-lang", default="English")
     p.add_argument("--timeout", type=float, default=120.0)
+    p.add_argument(
+        "--temperature",
+        type=float,
+        default=0.9,
+        help="Sampling temperature for the rewrite backend",
+    )
+    p.add_argument(
+        "--candidates",
+        type=int,
+        default=1,
+        help="Number of rewrite candidates to generate and score",
+    )
     p.add_argument(
         "--no-layer-a-after",
         action="store_true",
@@ -244,6 +341,8 @@ def main() -> int:
             original_lang=args.original_lang,
             timeout=args.timeout,
             layer_a_after=not args.no_layer_a_after,
+            temperature=args.temperature,
+            candidates=args.candidates,
         )
     except (urllib.error.URLError, TimeoutError, RuntimeError) as e:
         eprint(f"rewrite failed: {e}")

@@ -95,12 +95,12 @@ After Layer A, **always propose** a statistical-mark reduction pass for natural-
 Multi-pass recipe:
 
 1. Layer A clean  
-2. Paraphrase (default) — rewrite every sentence; preserve facts, numbers, names, code IDs  
-3. Optional strong pass — back-translate or structural outline→regen  
+2. Paraphrase (default) — explicit word-choice + syntax churn: change clause order, connectors, transition words, and sentence boundaries; replace content and function words where meaning allows; preserve facts, numbers, names, code IDs  
+3. Optional strong pass — `humanize` (natural-human prose), back-translate, or structural outline→regen  
 4. Layer A again on the result  
-5. Report residual risk honestly  
+5. Report residual risk honestly (short/highly predictable text = lower; long, high-entropy prose = higher)  
 
-**Model hygiene:** Prefer a rewrite model **≠ suspected origin** (Claude text → not Claude; Gemini → not Gemini; etc.). Prefer local Ollama when available.
+**Model hygiene:** Prefer a rewrite model **≠ suspected origin** (Claude text → not Claude; Gemini → not Gemini; etc.). Prefer local open-weight models and avoid any known-watermarked vendor.
 
 **Optional rewrite hook** (when env configured):
 
@@ -117,16 +117,44 @@ python3 "$SCRIPTS/rewrite_text.py" draft.md -o draft.rewritten.md --strength par
 
 If the hook is not configured, run the prompts below yourself (agent-orchestrated).
 
-**Code files:** Prefer formatter (`prettier`, `black`, `gofmt`, …) + Layer A. Offer light rewrite only with explicit user OK.
+**Code files:** Prefer formatter (`prettier`, `black`, `gofmt`, …) + Layer A. Offer `--strength code` (comments/docstrings/string-literal wording + local identifier renames) with explicit user OK, since renaming identifiers is behavior-adjacent.
 
 #### Rewrite prompts (use as-is)
 
-**Paraphrase preserve meaning:**
+**Paraphrase preserve meaning (word choice + syntax):**
 
 ```
-Rewrite the following text so that every sentence uses different wording and
-structure while preserving all facts, numbers, names, and technical identifiers.
-Do not add or remove claims. Output only the rewritten text.
+Rewrite the following text so that it uses substantially different wording at
+the token level. Change clause order, connectors, and transition words; vary
+sentence boundaries and length; and replace both content words and function
+words where meaning allows. Preserve all facts, numbers, names, and technical
+identifiers. Do not add or remove claims. Output only the rewritten text.
+
+---
+{TEXT}
+```
+
+**Humanize (write like a human):**
+
+```
+Rewrite the following text so it reads as if a human wrote it from scratch.
+Vary sentence rhythm and length, replace formulaic AI-style transitions and
+filler with concrete natural phrasing, and use plain, varied wording. Preserve
+all facts, numbers, names, and technical identifiers. Do not add or remove
+claims. Output only the rewritten text.
+
+---
+{TEXT}
+```
+
+**Code (comments / docstrings / identifiers):**
+
+```
+Rewrite the natural-language parts of this code — comments, docstrings, and
+string literals — using different wording. Rename local variables, function
+parameters, and private helper names to semantically equivalent names. Preserve
+program behavior, public API names, and all values that affect output. Output
+only the rewritten code.
 
 ---
 {TEXT}
@@ -152,8 +180,8 @@ Extract a bullet outline of all claims and structure from the text (no full sent
 Then:
 
 ```
-Write a complete document from this outline in a clear professional style.
-Do not omit any bullet. Output only the document.
+Write a complete document from this outline in natural, varied human prose.
+Avoid formulaic transitions. Do not omit any bullet. Output only the document.
 ```
 
 ### 5. Report
@@ -161,7 +189,7 @@ Do not omit any bullet. Output only the document.
 Always state:
 
 - What Layer A / container clean **verifiably** removed (counts, actions).
-- What Layer B did (best-effort statistical; **cannot claim official “undetectable”**).
+- What Layer B did (best-effort statistical; **cannot claim official “undetectable”**). Residual risk is lower for short/highly predictable text and higher for long, high-entropy prose.
 - Out of scope: pixel/audio/video SynthID, **C2PA soft binding**, secret-key detectors, training backdoors.
 - Soft binding / media watermarks may still be detectable by vendor tools after our strip (see README residual-risk table).
 - Prefer writing `*.cleaned.*` unless user asked in-place.
