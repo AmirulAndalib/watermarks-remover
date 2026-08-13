@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from container_meta import detect_container_format, inspect_container  # noqa: E
 from image_meta import detect_format as detect_image_format  # noqa: E402
 from image_meta import inspect_image  # noqa: E402
 from text_unicode import human_report, inspect_text  # noqa: E402
+
+MAX_INPUT_BYTES = int(os.environ.get("WATERMARKS_MAX_INPUT_BYTES", str(1 << 30)))
 
 TEXT_EXTS = {".txt", ".text", ".md", ".markdown", ".mdx", ".html", ".htm", ".css", ".js", ".py", ".rs", ".go", ".json", ".yaml", ".yml", ".toml", ".csv"}
 IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
@@ -53,6 +56,10 @@ def main() -> int:
 
     if not args.path.is_file():
         eprint(f"not a file: {args.path}")
+        return 2
+
+    if args.path.stat().st_size > MAX_INPUT_BYTES:
+        eprint(f"refusing input larger than {MAX_INPUT_BYTES} bytes: {args.path}")
         return 2
 
     kind = args.force_type if args.force_type != "auto" else classify(args.path)

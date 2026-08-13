@@ -43,3 +43,14 @@ def which(cmd: str) -> str | None:
     from shutil import which as _which
 
     return _which(cmd)
+
+
+def safe_arg(path: str) -> str:
+    """Guard paths passed to option-parsing CLIs (exiftool, c2patool).
+
+    A filename starting with '-' would otherwise be interpreted as an option
+    (e.g. exiftool's -@argfile), turning a crafted filename into argv injection.
+    """
+    if path.startswith("-"):
+        return "./" + path
+    return path
