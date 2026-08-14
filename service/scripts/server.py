@@ -271,6 +271,33 @@ def openapi_spec() -> dict[str, Any]:
     return spec
 
 
+def _safe_name(name: str) -> str:
+    """Reduce a client-supplied filename to a bare basename safe for temp use.
+
+    CodeQL (uncontrolled data in path expression): a name like '../../x'
+    would otherwise let the write below escape the request temp dir. Fold
+    Windows separators too, and fall back to a neutral name for '.', '..' or
+    empty results.
+    """
+    base = Path(name.replace("\\", "/")).name
+    if base in ("", ".", ".."):
+        return "input"
+    return base
+
+
+def _tmp_path(tmpdir: Path, *parts: str) -> Path:
+    """Join *parts* under *tmpdir* and refuse anything that escapes it.
+
+    Defense-in-depth for the CodeQL "uncontrolled data in path expression"
+    findings: even if a caller slips a separator through, the write can never
+    land outside the request temp dir.
+    """
+    path = tmpdir.joinpath(*parts)
+    if path.parent != tmpdir:
+        raise ValueError("unsafe filename")
+    return path
+
+
 def _decode_input(body: dict[str, Any]) -> tuple[bytes, str]:
     raw = body.get("file")
     if not isinstance(raw, str):
@@ -282,7 +309,7 @@ def _decode_input(body: dict[str, Any]) -> tuple[bytes, str]:
         data = base64.b64decode(raw, validate=True)
     except (binascii.Error, ValueError):
         raise ValueError("'file' is not valid base64")
-    return data, name or ""
+    return data, _safe_name(name or "")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -371,7 +398,7 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_inspect(self, data: bytes, name: str) -> None:
         kind = classify_bytes(data, Path(name).suffix)
         with tempfile.TemporaryDirectory(prefix="wm-inspect-") as tmp:
-            path = Path(tmp) / (name or "input")
+            path = _tmp_path(Path(tmp), name or "input")
             path.write_bytes(data)
             if kind == "text":
                 if looks_binary(data):
@@ -399,7 +426,7 @@ class Handler(BaseHTTPRequestHandler):
 
         with tempfile.TemporaryDirectory(prefix="wm-clean-") as tmp:
             tmpdir = Path(tmp)
-            src = tmpdir / (name or "input")
+            src = _tmp_path(tmpdir, name or "input")
             src.write_bytes(data)
             if kind == "text":
                 if looks_binary(data):
@@ -429,7 +456,7 @@ class Handler(BaseHTTPRequestHandler):
                 cleaned_bytes = dest.read_bytes()
                 report = {"kind": "image", **result}
             else:
-                dest = tmpdir / f"out{Path(name).suffix}"
+                dest = _tmp_path(tmpdir, f"out{Path(name).suffix}")
                 result = clean_container(src, dest, also_layer_a_text=bool(options.get("also_layer_a_text", True)))
                 cleaned_bytes = dest.read_bytes()
                 report = {"kind": "container", **result}

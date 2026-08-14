@@ -195,6 +195,26 @@ def test_missing_file_field_rejected(conn):
     assert status == 400
 
 
+def test_safe_name_sanitizes_traversal():
+    assert server._safe_name("../../etc/passwd") == "passwd"
+    assert server._safe_name("a/b/c/notes.md") == "notes.md"
+    assert server._safe_name("..\\..\\win.txt") == "win.txt"
+    assert server._safe_name("..") == "input"
+    assert server._safe_name(".") == "input"
+    assert server._safe_name("") == "input"
+    assert server._safe_name("report.docx") == "report.docx"
+
+
+def test_traversal_name_does_not_escape(conn, tmp_path):
+    data = "Hello\u200bWorld!".encode("utf-8")
+    status, body = _post(conn, "/clean", {"file": _b64(data), "name": "../../escape.txt"})
+    assert status == 200
+    assert body["kind"] == "text"
+    cleaned = base64.b64decode(body["cleaned"]).decode("utf-8")
+    assert cleaned == "HelloWorld!"
+    assert not (tmp_path / "escape.txt").exists()
+
+
 def test_oversized_body_413(conn, monkeypatch):
     monkeypatch.setattr(server, "MAX_BODY_BYTES", 64)
     data = "x" * 200
