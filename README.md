@@ -423,7 +423,6 @@ make smoke                          # quick CLI smoke on fixtures
 ### Unreleased
 
 - Add stdlib-only WebP inspection and metadata cleaning for RIFF `C2PA`, XMP, EXIF, and ICC profile chunks
-
 - New optional MarkLLM harness (external `THU-BPM/MarkLLM` checkout, Apache-2.0): `detect_text_watermark.py` with `detect` / `watermark` subcommands for KGW and SynthID schemes
 - `rewrite_text.py --markllm-scheme` runs before/after detection around a Layer B rewrite (env-gated; reports `cleared`)
 - `setup_markllm.sh` bootstrap + `requirements-markllm.txt` (pinned deps) + `Dockerfile.markllm` and Makefile `bootstrap-markllm` / `smoke-markllm` / `docker-markllm-build` / `docker-markllm-help`
