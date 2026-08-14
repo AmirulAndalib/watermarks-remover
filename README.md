@@ -176,6 +176,25 @@ make compose-check        # or: ./compose-check.sh
 
 Checks `wr-core` via `GET /health` and runs each harness/heavy service with `--help`, requiring exit `0`.
 
+### Configuration
+
+**Nothing is required to clean arbitrary text** — the core service works out of the box:
+
+```bash
+echo "Hello\u200bWorld\u00ad!" > /tmp/sample.txt
+curl -s -X POST http://127.0.0.1:8765/clean -H 'Content-Type: application/json' \
+  -d "{\"file\": \"$(base64 -w0 /tmp/sample.txt)\", \"name\": \"sample.txt\"}"
+```
+
+Optional configuration goes in `.env` (auto-loaded by compose; template: [`.env.example`](.env.example)):
+
+| Var | Applies to | Purpose |
+| --- | --- | --- |
+| `WATERMARKS_SERVER_API_KEY` | `wr-core` | Require `Authorization: Bearer <key>` on the HTTP API |
+| `HF_TOKEN` | harness/heavy | Hugging Face token for gated models |
+| `WATERMARKS_SERVICE_URL` | client (skill/curl) | Default `http://127.0.0.1:8765` |
+| `WATERMARKS_REWRITE_BACKEND` / `_MODEL` / `_BASE_URL` / `_API_KEY` | `rewrite_text.py` hook | Layer B rewrite via a local Ollama/OpenAI endpoint (the skill does Layer B itself and doesn't need these) |
+
 Images publish automatically on `v*` tags via [`.github/workflows/release-images.yml`](.github/workflows/release-images.yml).
 
 ## Optional SynthID pixel scoring
