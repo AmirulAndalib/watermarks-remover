@@ -241,6 +241,72 @@ docker run --rm -e HF_TOKEN="$HF_TOKEN" \
   watermarks-remover-ctrlregen /data/shot.png -o /data/shot.ctrlregen.png
 ```
 
+## Optional MarkLLM text-watermark verification
+
+For **controlled experiments**, an optional external harness wraps
+[`THU-BPM/MarkLLM`](https://github.com/THU-BPM/MarkLLM) (Apache-2.0) to
+watermark test text and re-detect it after a Layer B rewrite — e.g. prove that
+a KGW (Kirchenbauer, your "open-LLM" row) or SynthID-Text (Gemini row) mark
+disappears under your rewrite. It is a **verification harness, not an oracle**:
+MarkLLM detection is only valid against the *same* scheme config + keys used at
+generation, and it cannot certify a vendor detector will fail.
+
+The backend is **not bundled**. `setup_markllm.sh` clones upstream at a pinned
+commit, creates a venv, and installs pinned deps (torch + transformers); the
+scoring model (default `facebook/opt-1.3b`, Apache-2.0) downloads from Hugging
+Face on first run.
+
+```bash
+SCRIPTS=skills/remove-ai-marks/scripts
+
+# Bootstrap (clones upstream, creates ~/MarkLLM/.venv, installs deps).
+"$SCRIPTS/setup_markllm.sh"
+
+# Generate watermarked + unwatermarked sample text under the KGW scheme.
+MARKLLM_DIR=~/MarkLLM \
+  ~/MarkLLM/.venv/bin/python "$SCRIPTS/detect_text_watermark.py" watermark prompt.txt \
+    --scheme kgw -o wm.txt -o2 plain.txt
+
+# Detect the scheme mark in a text file.
+MARKLLM_DIR=~/MarkLLM \
+  ~/MarkLLM/.venv/bin/python "$SCRIPTS/detect_text_watermark.py" detect wm.txt --scheme kgw --json
+```
+
+**Verification around a Layer B rewrite:** pass `--markllm-scheme` to
+`rewrite_text.py` (with `--markllm-dir`), and it records the MarkLLM detection
+before/after plus a `cleared` flag:
+
+```bash
+export WATERMARKS_REWRITE_BACKEND=ollama WATERMARKS_REWRITE_MODEL=llama3.2
+MARKLLM_DIR=~/MarkLLM \
+  python3 "$SCRIPTS/rewrite_text.py" wm.txt -o wm.rewritten.txt \
+    --markllm-scheme kgw --markllm-dir "$HOME/MarkLLM" --json-stats
+```
+
+If the backend is unconfigured or its deps are missing, the rewrite proceeds
+and the report notes verification was unavailable. A GPU is recommended; CPU
+runs work but are slow, and the model download is a few GB.
+
+Hardening knobs:
+
+- `--offline` on the adapter (or any MarkLLM run) loads the scoring model from
+  the Hugging Face cache only — zero network egress; fails fast if not cached.
+  Custom remote code is never executed (transformers `trust_remote_code` is
+  never enabled).
+- `WATERMARKS_MARKLLM_RLIMIT_AS=<bytes>` (env, POSIX) applies an address-space
+  limit to the MarkLLM subprocess spawned by `rewrite_text.py`. Off by default
+  because torch/CUDA usually needs large address spaces.
+- Config files are capped at 1 MiB; the upstream checkout and the base image
+  are pinned by SHA/digest.
+
+### Docker
+
+```bash
+make docker-markllm-build
+docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd):/data" \
+  watermarks-remover-markllm detect /data/wm.txt --scheme kgw --json
+```
+
 ## Coverage matrix
 
 | Channel | Claude | Gemini/SynthID | OpenAI | Open-LLM |
@@ -369,6 +435,12 @@ make smoke                          # quick CLI smoke on fixtures
 ### Unreleased
 
 - Add stdlib-only WebP inspection and metadata cleaning for RIFF `C2PA`, XMP, EXIF, and ICC profile chunks
+- New optional MarkLLM harness (external `THU-BPM/MarkLLM` checkout, Apache-2.0): `detect_text_watermark.py` with `detect` / `watermark` subcommands for KGW and SynthID schemes
+- `rewrite_text.py --markllm-scheme` runs before/after detection around a Layer B rewrite (env-gated; reports `cleared`)
+- `setup_markllm.sh` bootstrap + `requirements-markllm.txt` (pinned deps) + `Dockerfile.markllm` and Makefile `bootstrap-markllm` / `smoke-markllm` / `docker-markllm-build` / `docker-markllm-help`
+- Mock-based tests (`tests/test_markllm_detect.py`, 21 cases) — no torch in CI
+- Docs: verification-harness caveat (same-config-only, not a vendor-detector oracle) in README, SKILL.md, `removal-matrix.md`, `vendor-notes.md`
+- Hardening: `--offline` cache-only model loading (no HF egress, no remote code), 1 MiB config cap, optional `WATERMARKS_MARKLLM_RLIMIT_AS` on the rewrite subprocess, pinned torch in the Dockerfile, and clone-SHA verification in `Dockerfile.markllm`
 
 ### [v0.4.0](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.4.0) — pixel removal, finding confidence, Windows & false-positive fixes
 
