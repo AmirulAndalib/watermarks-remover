@@ -1,6 +1,8 @@
 .PHONY: test smoke smoke-synthid bootstrap-synthid docker-synthid-build docker-synthid-help \
 	smoke-ctrlregen bootstrap-ctrlregen docker-ctrlregen-build docker-ctrlregen-help \
-	smoke-markllm bootstrap-markllm docker-markllm-build docker-markllm-help install-skill clean
+	smoke-markllm bootstrap-markllm docker-markllm-build docker-markllm-help \
+	smoke-markdiffusion bootstrap-markdiffusion docker-markdiffusion-build docker-markdiffusion-help \
+	install-skill clean
 
 SCRIPTS := skills/remove-ai-marks/scripts
 PYTHON ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -65,6 +67,22 @@ docker-markllm-build:
 
 docker-markllm-help:
 	docker run --rm watermarks-remover-markllm --help
+
+smoke-markdiffusion:
+	@if [ -z "$(MARKDIFFUSION_DIR)" ]; then \
+	  echo "smoke-markdiffusion skipped (set MARKDIFFUSION_DIR)"; \
+	else \
+	  $(PYTHON) $(SCRIPTS)/markdiffusion_harness.py --help >/dev/null && echo "markdiffusion_harness adapter present"; \
+	fi
+
+bootstrap-markdiffusion:
+	./skills/remove-ai-marks/scripts/setup_markdiffusion.sh
+
+docker-markdiffusion-build:
+	docker build -f Dockerfile.markdiffusion -t watermarks-remover-markdiffusion .
+
+docker-markdiffusion-help:
+	docker run --rm watermarks-remover-markdiffusion --help
 
 install-skill:
 	mkdir -p $(HOME)/.grok/skills

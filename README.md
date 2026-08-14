@@ -307,6 +307,83 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd):/data" \
   watermarks-remover-markllm detect /data/wm.txt --scheme kgw --json
 ```
 
+## Optional MarkDiffusion image-watermark harness
+
+For **controlled experiments on images**, an optional external harness wraps
+[`THU-BPM/MarkDiffusion`](https://github.com/THU-BPM/MarkDiffusion) (Apache-2.0),
+a *generative watermarking* toolkit for latent diffusion models (it embeds marks
+— it does not remove them). We use it for three things:
+
+1. **Verification harness** (like MarkLLM, but for images): watermark a test
+   image with a scheme, run removal, and re-detect with the *same* scheme config
+   — e.g. prove a Tree-Ring-class mark clears under your pipeline. It is a
+   **verification harness, not an oracle**: detection requires the generating
+   model (and keys for key-based schemes), so it cannot certify a vendor
+   detector will fail on an arbitrary image.
+2. **Optional pixel-removal engine**: its `DiffusionPurification` regeneration
+   attack is exposed as `clean_image.py --remove-pixel diffusion`, an
+   alternative to CtrlRegen. It is **blind** regeneration (no ControlNet
+   conditioning), so it drifts image content more than CtrlRegen — conservative
+   strength default (`0.3`), treated as a fallback/comparison, never a
+   guarantee.
+3. **Local same-scheme detector** for Tree-Ring-class marks, partially filling
+   the "no local detector for StegaStamp/Tree-Ring/StableSignature" gap (it
+   covers Tree-Ring/Ring-ID/Gaussian-Shading etc., not StegaStamp /
+   StableSignature / SynthID-media).
+
+The backend is **not bundled**. `setup_markdiffusion.sh` creates a venv and
+installs `markdiffusion==1.0.2` from PyPI (pinned), with torch installed from
+the right platform index; `--checkout` installs an editable clone at a pinned
+commit instead. The Stable Diffusion model (default
+`huanzi05/stable-diffusion-2-1-base`) downloads from Hugging Face on first run.
+
+```bash
+SCRIPTS=skills/remove-ai-marks/scripts
+
+# Bootstrap (PyPI pin default; creates ~/markdiffusion/.venv, installs deps).
+"$SCRIPTS/setup_markdiffusion.sh"
+
+# 1. Generate a Tree-Ring watermarked image (+ unwatermarked control).
+echo "a red fox in snow" > /tmp/prompt.txt
+MARKDIFFUSION_DIR=~/markdiffusion \
+  ~/markdiffusion/.venv/bin/python "$SCRIPTS/markdiffusion_harness.py" watermark \
+    /tmp/prompt.txt -o wm.png -o2 plain.png --scheme tr --json
+
+# 2. Remove with the DiffusionPurification regeneration attack.
+MARKDIFFUSION_DIR=~/markdiffusion \
+  ~/markdiffusion/.venv/bin/python "$SCRIPTS/markdiffusion_harness.py" purify \
+    wm.png -o wm.purified.png --purification-strength 0.3 --json
+
+# 3. Re-detect with the SAME scheme config.
+MARKDIFFUSION_DIR=~/markdiffusion \
+  ~/markdiffusion/.venv/bin/python "$SCRIPTS/markdiffusion_harness.py" detect \
+    wm.purified.png --scheme tr --detector-type l1_distance --json
+```
+
+Or run purification as part of the normal image pipeline:
+
+```bash
+MARKDIFFUSION_DIR=~/markdiffusion \
+  ~/markdiffusion/.venv/bin/python "$SCRIPTS/clean_image.py" shot.png \
+    -o shot.cleaned.png --remove-pixel diffusion
+```
+
+Hardening knobs mirror the MarkLLM harness: `--offline` loads the model from
+the Hugging Face cache only (zero network egress, no remote code), `HF_TOKEN`
+is env-only (never argv), algorithm configs are capped at 1 MiB, and the
+subprocess gets the same higher resource caps as CtrlRegen.
+
+### Docker
+
+```bash
+make docker-markdiffusion-build
+docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd):/data" \
+  watermarks-remover-markdiffusion detect /data/wm.png --scheme tr --json
+```
+
+The image installs a CPU torch; CUDA users should run `setup_markdiffusion.sh`
+on the host instead. Model downloads still hit the HF hub on first run.
+
 ## Coverage matrix
 
 | Channel | Claude | Gemini/SynthID | OpenAI | Open-LLM |
@@ -314,7 +391,7 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd):/data" \
 | Unicode / edit-based text | Layer A | Layer A | Layer A | Layer A |
 | Statistical sampling text | Layer B best-effort | Layer B best-effort | Layer B if present | Layer B best-effort |
 | C2PA / file metadata | Yes (listed formats) | Yes when present | Yes when present | Yes when present |
-| Pixel image marks | Out of scope | Optional SynthID score + CtrlRegen removal (external) | Out of scope | Optional CtrlRegen removal (external) |
+| Pixel image marks | Out of scope | Optional SynthID score + CtrlRegen removal (external); optional MarkDiffusion same-scheme detect + DiffusionPurification removal (external) | Out of scope | Optional CtrlRegen / MarkDiffusion removal (external) |
 | Training backdoors | Out of scope | Out of scope | Out of scope | Out of scope |
 
 Details: [`skills/remove-ai-marks/references/vendor-notes.md`](skills/remove-ai-marks/references/vendor-notes.md), [`mark-classes.md`](skills/remove-ai-marks/references/mark-classes.md).
@@ -412,6 +489,7 @@ Industry two-layer context (C2PA + imperceptible watermark): [Institute of AI PM
 | Rewrite (Layer B) | Statistical token marks (best-effort) | Always offered by skill; costs style — see [Disclaimer](#disclaimer-what-removing-a-text-watermark-costs) |
 | Container/metadata strip | File provenance | See format table |
 | CtrlRegen pixel removal (optional) | Pixel-domain image marks (SynthID-class, StegaStamp, Tree-Ring, StableSignature) | External backend; heavy compute; conservative strength default |
+| DiffusionPurification pixel removal (optional) | Pixel-domain image marks (Tree-Ring-class) | MarkDiffusion backend; blind regeneration (more drift than CtrlRegen); conservative strength default |
 | Open-weight local models | Avoid re-stamping with origin model | Operational alternative |
 
 Matrix: [`skills/remove-ai-marks/references/removal-matrix.md`](skills/remove-ai-marks/references/removal-matrix.md).
@@ -434,6 +512,11 @@ make smoke                          # quick CLI smoke on fixtures
 
 ### Unreleased
 
+- New optional MarkDiffusion image-watermark harness (external `THU-BPM/MarkDiffusion`, Apache-2.0): `markdiffusion_harness.py` with `watermark` / `detect` / `purify` subcommands for nine image schemes (Tree-Ring, Ring-ID, ROBIN, WIND, SFW, Gaussian-Shading, GaussMarker, PRC, SEAL)
+- `clean_image.py --remove-pixel diffusion` runs the MarkDiffusion `DiffusionPurification` regeneration attack as an alternative pixel-removal engine (conservative strength 0.3 default)
+- `setup_markdiffusion.sh` bootstrap (PyPI pin `1.0.2`; `--checkout` editable clone at pinned commit) + `requirements-markdiffusion.txt` + `Dockerfile.markdiffusion` and Makefile `bootstrap-markdiffusion` / `smoke-markdiffusion` / `docker-markdiffusion-build` / `docker-markdiffusion-help`
+- Mock-based tests (`tests/test_markdiffusion_harness.py`) — no torch in CI; `references/markdiffusion.md` reference doc
+- Docs: same-scheme-only verification caveat (not a vendor-detector oracle) and blind-regeneration drift caveat in README, SKILL.md, `removal-matrix.md`, `markdiffusion.md`
 - Add stdlib-only WebP inspection and metadata cleaning for RIFF `C2PA`, XMP, EXIF, and ICC profile chunks
 - New optional MarkLLM harness (external `THU-BPM/MarkLLM` checkout, Apache-2.0): `detect_text_watermark.py` with `detect` / `watermark` subcommands for KGW and SynthID schemes
 - `rewrite_text.py --markllm-scheme` runs before/after detection around a Layer B rewrite (env-gated; reports `cleared`)
@@ -541,6 +624,7 @@ MIT — see [LICENSE](LICENSE).
 - [C2PA](https://c2pa.org/) / [c2patool](https://github.com/contentauth/c2pa-rs/tree/main/cli)
 - Kirchenbauer et al., [*A Watermark for Large Language Models*](https://arxiv.org/abs/2301.10226)
 - [THU-BPM/MarkLLM](https://github.com/THU-BPM/MarkLLM) (unified toolkit for evaluating LLM watermarking algorithms)
+- Pan et al., [*MarkDiffusion: An Open-Source Toolkit for Generative Watermarking of Latent Diffusion Models*](https://arxiv.org/abs/2509.10569) (JMLR) — the embedding toolkit this repo's optional image-watermark harness wraps — [code](https://github.com/THU-BPM/MarkDiffusion), [docs](https://markdiffusion.readthedocs.io)
 - Zhang et al., [*Watermarks in the Sand: Impossibility of Strong Watermarking for Generative Models*](https://arxiv.org/abs/2311.04378) (ICML 2024)
 - [google-deepmind/synthid-text](https://github.com/google-deepmind/synthid-text) (research reference; not used for detection here)
 - [aloshdenny/reverse-SynthID](https://github.com/aloshdenny/reverse-SynthID) (research reference)

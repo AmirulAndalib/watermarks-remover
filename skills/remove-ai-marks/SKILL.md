@@ -21,6 +21,7 @@ Read if needed:
 - `references/removal-matrix.md` — which layer when
 - `references/ethics.md` — intended use
 - `references/how-claude-marks.md` — Anthropic-specific detail
+- `references/markdiffusion.md` — optional MarkDiffusion image harness (schemes, honesty caveats)
 
 Scripts live in this skill’s `scripts/` directory. Resolve `SCRIPTS` to that folder (absolute path of this skill + `/scripts`).
 
@@ -34,6 +35,8 @@ python3 "$SCRIPTS/inspect_image.py" ...
 python3 "$SCRIPTS/clean_image.py" ...
 python3 "$SCRIPTS/clean_ctrlregen.py" ...   # optional external pixel removal (bootstrap first)
 "$SCRIPTS/setup_ctrlregen.sh"              # one-command bootstrap (Windows: setup_ctrlregen.ps1)
+python3 "$SCRIPTS/markdiffusion_harness.py" ...  # optional MarkDiffusion image harness (bootstrap first)
+"$SCRIPTS/setup_markdiffusion.sh"          # one-command bootstrap (PyPI pin; --checkout for editable)
 python3 "$SCRIPTS/rewrite_text.py" ...
 python3 "$SCRIPTS/detect_text_watermark.py" ...  # optional external MarkLLM verification harness (bootstrap first)
 "$SCRIPTS/setup_markllm.sh"                # one-command bootstrap for the above
@@ -80,7 +83,16 @@ local image with `make docker-synthid-build`.
 For pixel-domain **removal**, bootstrap the CtrlRegen backend with
 `scripts/setup_ctrlregen.sh` (or `make docker-ctrlregen-build`), then use
 `clean_image.py --remove-pixel ctrlregen`. See the README "Optional CtrlRegen
-pixel removal" section for strength presets and the 512×512 size handling.
+pixel removal" section for strength presets and the 512×512 size handling. An
+alternative engine, MarkDiffusion's `DiffusionPurification`, is available as
+`clean_image.py --remove-pixel diffusion` (bootstrap with
+`scripts/setup_markdiffusion.sh`); it is **blind** regeneration and drifts more
+than CtrlRegen, so it is a fallback/comparison path, not the default.
+
+For controlled before/after experiments on images, the MarkDiffusion harness
+(`markdiffusion_harness.py watermark` → removal → `detect`) proves a specific
+Tree-Ring-class scheme config clears. **Same-scheme/same-model only** — it is
+not a vendor-detector oracle.
 
 ### Aggregate audits and confidence
 
@@ -252,6 +264,7 @@ Always state:
 - PDF strip is best-effort without `exiftool`, and incomplete without `qpdf`: exiftool alone leaves the freed metadata objects in the byte stream.
 - Pixel-domain **image** watermarks can be removed optionally via the external CtrlRegen backend (`clean_image.py --remove-pixel ctrlregen`); audio/video watermarks remain out of scope for removal.
 - The CtrlRegen backend is external, all-rights-reserved (no LICENSE file), never bundled, heavy (~10 GB model downloads), and a regenerating remover — no local detector certifies StegaStamp/Tree-Ring/StableSignature removal.
+- The MarkDiffusion backend (Apache-2.0, PyPI-pinned) adds a same-scheme detector for Tree-Ring-class marks and a blind-regeneration remover (`--remove-pixel diffusion`); detection is same-scheme/same-model-only and it is not a vendor-detector oracle.
 - The reverse-SynthID scorer is external, best-effort, and under a non-commercial Research License; it is not bundled and is not an official Google detector.
 - **C2PA soft binding** (content watermark that re-links to a remote manifest after metadata strip) is out of scope — stripping hard-bound C2PA does not clear it.
 - Data-driven / backdoor model marks (trigger phrases) are out of scope.
@@ -280,6 +293,18 @@ scripts/setup_ctrlregen.sh
 NOAI_WATERMARK_DIR=~/noai-watermark \
   ~/noai-watermark/.venv/bin/python scripts/clean_image.py shot.png \
   -o shot.cleaned.png --remove-pixel ctrlregen
+
+# Optional MarkDiffusion image harness (watermark -> purify -> detect)
+scripts/setup_markdiffusion.sh
+MARKDIFFUSION_DIR=~/markdiffusion \
+  ~/markdiffusion/.venv/bin/python scripts/markdiffusion_harness.py \
+    watermark prompt.txt -o wm.png -o2 plain.png --scheme tr --json
+MARKDIFFUSION_DIR=~/markdiffusion \
+  ~/markdiffusion/.venv/bin/python scripts/markdiffusion_harness.py \
+    purify wm.png -o wm.purified.png --purification-strength 0.3 --json
+MARKDIFFUSION_DIR=~/markdiffusion \
+  ~/markdiffusion/.venv/bin/python scripts/markdiffusion_harness.py \
+    detect wm.purified.png --scheme tr --detector-type l1_distance --json
 
 # Optional MarkLLM verification (external backend; bootstrap first)
 scripts/setup_markllm.sh
