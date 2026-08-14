@@ -123,7 +123,7 @@ cat <<EOF
 Done. Detect a scheme watermark in text with:
 
   export MARKLLM_DIR="$DIR"
-  "$DIR/.venv/bin/python" "\$REPO/skills/remove-ai-marks/scripts/detect_text_watermark.py" detect TEXT --scheme kgw
+  "$DIR/.venv/bin/python" "\$REPO/service/scripts/detect_text_watermark.py" detect TEXT --scheme kgw
 
 The base scoring model (default facebook/opt-1.3b) is downloaded from
 Hugging Face on first run. Detection is only valid against the SAME scheme
