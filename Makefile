@@ -1,5 +1,6 @@
 .PHONY: test smoke smoke-synthid bootstrap-synthid docker-synthid-build docker-synthid-help \
-	smoke-ctrlregen bootstrap-ctrlregen docker-ctrlregen-build docker-ctrlregen-help install-skill clean
+	smoke-ctrlregen bootstrap-ctrlregen docker-ctrlregen-build docker-ctrlregen-help \
+	smoke-markllm bootstrap-markllm docker-markllm-build docker-markllm-help install-skill clean
 
 SCRIPTS := skills/remove-ai-marks/scripts
 PYTHON ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -48,6 +49,22 @@ docker-ctrlregen-build:
 
 docker-ctrlregen-help:
 	docker run --rm watermarks-remover-ctrlregen --help
+
+smoke-markllm:
+	@if [ -z "$(MARKLLM_DIR)" ]; then \
+	  echo "smoke-markllm skipped (set MARKLLM_DIR)"; \
+	else \
+	  $(PYTHON) $(SCRIPTS)/detect_text_watermark.py --help >/dev/null && echo "detect_text_watermark adapter present"; \
+	fi
+
+bootstrap-markllm:
+	./skills/remove-ai-marks/scripts/setup_markllm.sh
+
+docker-markllm-build:
+	docker build -f Dockerfile.markllm -t watermarks-remover-markllm .
+
+docker-markllm-help:
+	docker run --rm watermarks-remover-markllm --help
 
 install-skill:
 	mkdir -p $(HOME)/.grok/skills
