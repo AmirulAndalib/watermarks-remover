@@ -163,7 +163,9 @@ under a config you control, bootstrap the external MarkLLM checkout with
 `--markllm-scheme kgw|synthid` to `rewrite_text.py` for a before/after
 detection report. This is a **controlled-experiment harness** — detection is
 only valid against the same scheme config + keys used at generation and cannot
-certify a vendor detector.
+certify a vendor detector. Add `--offline` to load the scoring model from the
+HF cache only (no network); `WATERMARKS_MARKLLM_RLIMIT_AS` (env, POSIX)
+optionally caps the subprocess address space.
 
 **Code files:** Prefer formatter (`prettier`, `black`, `gofmt`, …) + Layer A. Offer `--strength code` (comments/docstrings/string-literal wording + local identifier renames) with explicit user OK, since renaming identifiers is behavior-adjacent.
 

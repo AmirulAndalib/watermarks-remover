@@ -287,6 +287,18 @@ If the backend is unconfigured or its deps are missing, the rewrite proceeds
 and the report notes verification was unavailable. A GPU is recommended; CPU
 runs work but are slow, and the model download is a few GB.
 
+Hardening knobs:
+
+- `--offline` on the adapter (or any MarkLLM run) loads the scoring model from
+  the Hugging Face cache only — zero network egress; fails fast if not cached.
+  Custom remote code is never executed (transformers `trust_remote_code` is
+  never enabled).
+- `WATERMARKS_MARKLLM_RLIMIT_AS=<bytes>` (env, POSIX) applies an address-space
+  limit to the MarkLLM subprocess spawned by `rewrite_text.py`. Off by default
+  because torch/CUDA usually needs large address spaces.
+- Config files are capped at 1 MiB; the upstream checkout and the base image
+  are pinned by SHA/digest.
+
 ### Docker
 
 ```bash
@@ -426,8 +438,9 @@ make smoke                          # quick CLI smoke on fixtures
 - New optional MarkLLM harness (external `THU-BPM/MarkLLM` checkout, Apache-2.0): `detect_text_watermark.py` with `detect` / `watermark` subcommands for KGW and SynthID schemes
 - `rewrite_text.py --markllm-scheme` runs before/after detection around a Layer B rewrite (env-gated; reports `cleared`)
 - `setup_markllm.sh` bootstrap + `requirements-markllm.txt` (pinned deps) + `Dockerfile.markllm` and Makefile `bootstrap-markllm` / `smoke-markllm` / `docker-markllm-build` / `docker-markllm-help`
-- Mock-based tests (`tests/test_markllm_detect.py`, 16 cases) — no torch in CI
+- Mock-based tests (`tests/test_markllm_detect.py`, 21 cases) — no torch in CI
 - Docs: verification-harness caveat (same-config-only, not a vendor-detector oracle) in README, SKILL.md, `removal-matrix.md`, `vendor-notes.md`
+- Hardening: `--offline` cache-only model loading (no HF egress, no remote code), 1 MiB config cap, optional `WATERMARKS_MARKLLM_RLIMIT_AS` on the rewrite subprocess, pinned torch in the Dockerfile, and clone-SHA verification in `Dockerfile.markllm`
 
 ### [v0.4.0](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.4.0) — pixel removal, finding confidence, Windows & false-positive fixes
 

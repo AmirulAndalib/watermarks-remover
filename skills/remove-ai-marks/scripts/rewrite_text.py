@@ -30,6 +30,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -184,6 +185,30 @@ def _venv_python(upstream: Path) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def _markllm_preexec() -> Callable[[], None] | None:
+    """Optional RLIMIT_AS guard for the MarkLLM child; None means "no limit".
+
+    torch/CUDA usually needs large address spaces, so unlike the
+    exiftool/c2patool/SynthID children (common.subprocess_rlimits) this is
+    opt-in via WATERMARKS_MARKLLM_RLIMIT_AS (byte count, hex/octal allowed).
+    POSIX only; on Windows preexec_fn must stay None.
+    """
+    raw = os.environ.get("WATERMARKS_MARKLLM_RLIMIT_AS")
+    if not raw or os.name != "posix":
+        return None
+    try:
+        limit = int(raw, 0)
+    except ValueError:
+        return None
+
+    def _apply() -> None:
+        import resource
+
+        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+
+    return _apply
+
+
 def _markllm_detect(
     text: str,
     *,
@@ -227,6 +252,7 @@ def _markllm_detect(
             capture_output=True,
             text=True,
             timeout=timeout,
+            preexec_fn=_markllm_preexec(),
         )
     except (OSError, subprocess.SubprocessError, TimeoutError) as e:
         return {"available": False, "error": f"MarkLLM adapter error: {e}"}

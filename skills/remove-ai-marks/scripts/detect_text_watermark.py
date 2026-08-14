@@ -43,6 +43,11 @@ SCHEMES = {
 
 DEFAULT_MODEL = "facebook/opt-1.3b"
 
+# Algorithm configs are ~200 B (KGW/SynthID). Cap well above that so a crafted
+# or accidental huge file is refused before either this script or upstream
+# reads it into memory.
+MAX_CONFIG_BYTES = 1 << 20
+
 
 class _Unavailable(RuntimeError):
     """Backend present but unusable (unconfigured checkout, missing deps)."""
@@ -74,7 +79,9 @@ def resolve_device(raw: str | None) -> str:
     return "cpu"
 
 
-def _load_algorithm(upstream: Path, alg: str, config: Path, model: str, device: str):
+def _load_algorithm(
+    upstream: Path, alg: str, config: Path, model: str, device: str, offline: bool = False
+):
     """Import the checkout and build an ``AutoWatermark`` instance."""
     sys.path.insert(0, str(upstream))
     try:
@@ -84,8 +91,17 @@ def _load_algorithm(upstream: Path, alg: str, config: Path, model: str, device: 
     except ImportError as e:
         raise _Unavailable(f"MarkLLM dependencies missing: {e}") from e
 
-    tokenizer = AutoTokenizer.from_pretrained(model)
-    lm = AutoModelForCausalLM.from_pretrained(model).to(device)
+    # --offline: never contact the HF hub. local_files_only makes transformers
+    # fail fast instead of hanging, and HF_HUB_OFFLINE covers the lower-level
+    # hub calls. Custom-code execution is not possible either way: transformers
+    # only honors auto_map/trust_remote_code when explicitly enabled, which is
+    # never done here.
+    if offline:
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    load_kwargs = {"local_files_only": True} if offline else {}
+
+    tokenizer = AutoTokenizer.from_pretrained(model, **load_kwargs)
+    lm = AutoModelForCausalLM.from_pretrained(model, **load_kwargs).to(device)
     transformers_config = TransformersConfig(
         model=lm,
         tokenizer=tokenizer,
@@ -121,6 +137,14 @@ def _resolve_config(upstream: Path, alg: str, config: str | None) -> Path:
         path = upstream / "config" / f"{alg}.json"
     if not path.is_file():
         raise _Unavailable(f"MarkLLM config not found: {path}")
+    try:
+        size = path.stat().st_size
+    except OSError as e:
+        raise _Unavailable(f"cannot stat MarkLLM config {path}: {e}") from e
+    if size > MAX_CONFIG_BYTES:
+        raise _Unavailable(
+            f"MarkLLM config too large ({size} bytes > {MAX_CONFIG_BYTES}): {path}"
+        )
     return path
 
 
@@ -135,7 +159,9 @@ def _cmd_detect(args: argparse.Namespace, upstream: Path, alg: str) -> int:
     try:
         config = _resolve_config(upstream, alg, args.config)
         threshold = _threshold_from_config(config)
-        wm = _load_algorithm(upstream, alg, config, args.model, device)
+        wm = _load_algorithm(
+            upstream, alg, config, args.model, device, offline=args.offline
+        )
         result = wm.detect_watermark(text, return_dict=True)
     except _Unavailable as e:
         eprint(str(e))
@@ -181,7 +207,9 @@ def _cmd_watermark(args: argparse.Namespace, upstream: Path, alg: str) -> int:
 
     try:
         config = _resolve_config(upstream, alg, args.config)
-        wm = _load_algorithm(upstream, alg, config, args.model, device)
+        wm = _load_algorithm(
+            upstream, alg, config, args.model, device, offline=args.offline
+        )
         if args.seed is not None:
             import torch
 
@@ -254,6 +282,12 @@ def _add_common(p: argparse.ArgumentParser) -> None:
         "--device",
         default="auto",
         help="auto|cpu|cuda|mps (default: auto)",
+    )
+    p.add_argument(
+        "--offline",
+        action="store_true",
+        help="Never contact the HF hub: load the scoring model from the local "
+        "cache only (fails fast if not cached)",
     )
     p.add_argument(
         "--force-text",

@@ -42,15 +42,16 @@ RUN git clone --depth 1 --filter=blob:none --sparse \
         '/exceptions/' \
         '/evaluation/dataset.py' \
         '/LICENSE' \
-        '/README.md'
+        '/README.md' \
+    && test "$(git -C /opt/markllm rev-parse HEAD)" = "${MARKLLM_REF}"
 
 COPY skills/remove-ai-marks/scripts/requirements-markllm.txt /app/requirements-markllm.txt
 COPY skills/remove-ai-marks/scripts/detect_text_watermark.py /app/detect_text_watermark.py
 
-# CPU torch by default (no GPU index inside the image); CUDA users should run
-# setup_markllm.sh on the host instead.
+# torch is pinned (with everything else) in requirements-markllm.txt; there is
+# no separate unpinned install step. No GPU wheel index inside the image —
+# CUDA users should run setup_markllm.sh on the host instead.
 RUN python3 -m pip install --no-cache-dir "pip==26.2.1" \
-    && python3 -m pip install --no-cache-dir "torch" \
     && python3 -m pip install --no-cache-dir -r /app/requirements-markllm.txt
 
 # Unprivileged runtime user. The harness only reads input files and writes to

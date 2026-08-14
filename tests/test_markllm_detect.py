@@ -18,18 +18,20 @@ sys.path.insert(0, str(SCRIPTS))
 DETECT_SCRIPT = SCRIPTS / "detect_text_watermark.py"
 
 FAKE_TRANSFORMERS = (
+    "import sys\n"
     "class _LM:\n"
     "    def to(self, device):\n"
     "        return self\n"
     "\n"
     "class AutoModelForCausalLM:\n"
     "    @staticmethod\n"
-    "    def from_pretrained(name):\n"
+    "    def from_pretrained(name, **kwargs):\n"
+    "        print('MARKLLM_PRETRAINED_KWARGS=' + repr(kwargs), file=sys.stderr)\n"
     "        return _LM()\n"
     "\n"
     "class AutoTokenizer:\n"
     "    @staticmethod\n"
-    "    def from_pretrained(name):\n"
+    "    def from_pretrained(name, **kwargs):\n"
     "        return object()\n"
 )
 
@@ -230,6 +232,33 @@ def test_cli_detect_runtime_error(tmp_path: Path):
     assert "boom" in (r.stderr or "")
 
 
+def test_cli_detect_offline_flag(tmp_path: Path):
+    upstream = _make_fake_upstream(tmp_path)
+    f = tmp_path / "t.txt"
+    f.write_text("hello world")
+    r = _run_adapter(
+        "detect", str(f), "--scheme", "kgw", "--upstream-dir", str(upstream),
+        "--device", "cpu", "--json", "--offline",
+    )
+    assert r.returncode == 0, r.stderr
+    assert "local_files_only" in (r.stderr or "")
+    assert "True" in (r.stderr or "")
+
+
+def test_cli_config_too_large(tmp_path: Path):
+    upstream = _make_fake_upstream(tmp_path)
+    big = tmp_path / "huge.json"
+    big.write_bytes(b"x" * (1024 * 1024 + 1))
+    f = tmp_path / "t.txt"
+    f.write_text("hello world")
+    r = _run_adapter(
+        "detect", str(f), "--scheme", "kgw", "--config", str(big),
+        "--upstream-dir", str(upstream),
+    )
+    assert r.returncode == 3
+    assert "too large" in (r.stderr or "")
+
+
 def test_cli_watermark_json_success(tmp_path: Path):
     upstream = _make_fake_upstream(tmp_path)
     prompt = tmp_path / "prompt.txt"
@@ -322,6 +351,52 @@ def test_rewrite_markllm_detect_adapter_failure(tmp_path: Path, monkeypatch: pyt
     )
     assert result["available"] is False
     assert "deps missing" in result["error"]
+
+
+def test_markllm_preexec_default_off(monkeypatch: pytest.MonkeyPatch):
+    import rewrite_text
+
+    monkeypatch.delenv("WATERMARKS_MARKLLM_RLIMIT_AS", raising=False)
+    assert rewrite_text._markllm_preexec() is None
+
+
+def test_markllm_preexec_env(monkeypatch: pytest.MonkeyPatch):
+    import rewrite_text
+
+    if os.name != "posix":
+        pytest.skip("preexec_fn is POSIX-only")
+    monkeypatch.setenv("WATERMARKS_MARKLLM_RLIMIT_AS", "0x40000000")
+    fn = rewrite_text._markllm_preexec()
+    assert callable(fn)
+
+
+def test_rewrite_markllm_detect_applies_rlimit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    import rewrite_text
+
+    if os.name != "posix":
+        pytest.skip("preexec_fn is POSIX-only")
+    upstream = tmp_path / "MarkLLM"
+    venv_python = upstream / ".venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("")
+    (upstream / "watermark").mkdir()
+    monkeypatch.setenv("WATERMARKS_MARKLLM_RLIMIT_AS", "1073741824")
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["preexec_fn"] = kwargs.get("preexec_fn")
+        return SimpleNamespace(
+            returncode=0, stdout='{"available": true}', stderr=""
+        )
+
+    monkeypatch.setattr(rewrite_text.subprocess, "run", fake_run)
+    result = rewrite_text._markllm_detect(
+        "hello", scheme="kgw", upstream_dir=str(upstream), model="x", timeout=5,
+    )
+    assert result["available"] is True
+    assert callable(captured["preexec_fn"])
 
 
 def test_rewrite_markllm_hook_records_before_after(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
