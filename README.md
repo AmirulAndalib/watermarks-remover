@@ -176,7 +176,7 @@ make compose-check        # or: ./compose-check.sh
 
 Checks `wr-core` via `GET /health` and runs each harness/heavy service with `--help`, requiring exit `0`.
 
-### Configuration
+### Configuration (env vars for docker compose)
 
 **Nothing is required to clean arbitrary text** — the core service works out of the box:
 
@@ -186,14 +186,32 @@ curl -s -X POST http://127.0.0.1:8765/clean -H 'Content-Type: application/json' 
   -d "{\"file\": \"$(base64 -w0 /tmp/sample.txt)\", \"name\": \"sample.txt\"}"
 ```
 
-Optional configuration goes in `.env` (auto-loaded by compose; template: [`.env.example`](.env.example)):
+Everything else is optional and lives in a `.env` file at the repo root. `docker compose` **auto-loads `.env`** and interpolates the `${VAR}` references in `compose.yaml` from it (shell exports win over `.env` if both are set).
 
-| Var | Applies to | Purpose |
+```bash
+cp .env.example .env       # then edit
+docker compose up -d       # picks up .env automatically
+```
+
+`.env` is **gitignored** (deny-by-default) — never commit it. For host-side CLI runs (`rewrite_text.py`, the skill), export the same file into the environment:
+
+```bash
+set -a; . ./.env; set +a; python3 service/scripts/rewrite_text.py /tmp/x.txt -o /tmp/x.rewritten.txt
+```
+
+| Var | Reaches | Purpose |
 | --- | --- | --- |
-| `WATERMARKS_SERVER_API_KEY` | `wr-core` | Require `Authorization: Bearer <key>` on the HTTP API |
-| `HF_TOKEN` | harness/heavy | Hugging Face token for gated models |
-| `WATERMARKS_SERVICE_URL` | client (skill/curl) | Default `http://127.0.0.1:8765` |
-| `WATERMARKS_REWRITE_BACKEND` / `_MODEL` / `_BASE_URL` / `_API_KEY` | `rewrite_text.py` hook | Layer B rewrite via a local Ollama/OpenAI endpoint (the skill does Layer B itself and doesn't need these) |
+| `WATERMARKS_SERVER_API_KEY` | `wr-core` (via compose `environment`) | Require `Authorization: Bearer <key>` on the HTTP API |
+| `HF_TOKEN` | harness/heavy services | Hugging Face token for gated models |
+| `WATERMARKS_SERVICE_URL` | client only (skill / curl) | Where to reach the service; default `http://127.0.0.1:8765` |
+| `WATERMARKS_REWRITE_BACKEND` | `rewrite_text.py` hook | `print-prompt` (default) / `ollama` / `openai-compatible` |
+| `WATERMARKS_REWRITE_MODEL` | `rewrite_text.py` hook | Model name (e.g. `deepseek-v4-flash`) |
+| `WATERMARKS_REWRITE_BASE_URL` | `rewrite_text.py` hook | API base (e.g. `https://api.deepseek.com`) |
+| `WATERMARKS_REWRITE_API_KEY` | `rewrite_text.py` hook | API key — env only, never on argv |
+| `WATERMARKS_REWRITE_ALLOW_REMOTE` | `rewrite_text.py` hook | `1` to allow non-loopback endpoints |
+| `WATERMARKS_REWRITE_REASONING_EFFORT` | `rewrite_text.py` hook | `none` (default) / `low` / `medium` / `high` / `off` |
+
+Layer B is agent-orchestrated in the skill (it rewrites with its own model), so the `WATERMARKS_REWRITE_*` vars are only needed when driving `rewrite_text.py` directly.
 
 Images publish automatically on `v*` tags via [`.github/workflows/release-images.yml`](.github/workflows/release-images.yml).
 
@@ -611,6 +629,7 @@ make smoke                          # quick CLI smoke on fixtures
 
 ### Unreleased
 
+- **Repo hygiene**: `.gitignore` and `service/.dockerignore` are now deny-by-default — only explicitly allowed paths can be committed or sent in a build context (image contexts only ship `service/scripts/`, which is all the Dockerfiles COPY)
 - **Layer B**: `rewrite_text.py` now sends `reasoning_effort: "none"` by default for `openai-compatible` backends (`--reasoning-effort` / `WATERMARKS_REWRITE_REASONING_EFFORT`; `off` omits it). Reasoning models like `deepseek-v4-flash` otherwise burn ~100s of chain-of-thought on a one-line rewrite (9,894 vs 12 completion tokens)
 - **Fix markllm image build**: `requirements-markllm.txt` pinned `tokenizers==0.23.1`, which conflicts with `transformers==5.15.0` (caps `tokenizers<=0.23.0`; no 0.23.0 release exists) — now pinned `tokenizers==0.22.2`; torch moved to the CPU wheel index (`torch==2.13.0.*`) so the image is CPU-only like `Dockerfile.markdiffusion`
 - **Fix ctrlregen image build**: the 2023-era research pins (`safetensors==0.4.3`, `transformers==4.37.2` → `tokenizers<0.19`) ship no Python 3.14 wheels, so the base image is now `python:3.11-slim` (digest-pinned, multi-arch)
