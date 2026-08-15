@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import posixpath
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -202,6 +204,77 @@ def test_docx_strips_app_and_customxml(tmp_path: Path):
         assert not any(n.startswith("customXml/") for n in names)
         app = zf.read("docProps/app.xml").decode()
         assert "Claude" not in app
+
+
+def _dangling_rels(zip_bytes: bytes) -> list[str]:
+    """Return every internal relationship whose target part is missing."""
+    bad: list[str] = []
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        names = set(zf.namelist())
+        for rels in (n for n in names if n.endswith(".rels")):
+            base = posixpath.dirname(posixpath.dirname(rels))
+            text = zf.read(rels).decode()
+            for m in re.finditer(
+                r'<Relationship\b[^>]*Target="([^"]*)"[^>]*/>', text, re.I
+            ):
+                target, tag = m.group(1), m.group(0)
+                if re.search(r"\bTargetMode\s*=", tag, re.I):
+                    continue  # external
+                if target.startswith("/"):
+                    resolved = posixpath.normpath(target.lstrip("/"))
+                else:
+                    resolved = posixpath.normpath(posixpath.join(base, target))
+                if resolved not in ("", ".") and resolved not in names:
+                    bad.append(f"{rels} -> {target}")
+    return bad
+
+
+def _make_docx_with_rels() -> bytes:
+    """DOCX whose document rels reference customXml, a kept part and a URL."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "[Content_Types].xml",
+            """<?xml version="1.0"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/customXml/item1.xml" ContentType="application/xml"/>
+</Types>""",
+        )
+        zf.writestr(
+            "word/document.xml",
+            '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>',
+        )
+        zf.writestr(
+            "customXml/item1.xml",
+            '<?xml version="1.0"?><root>c2pa contentcredentials</root>',
+        )
+        zf.writestr(
+            "word/_rels/document.xml.rels",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="document.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml" Target="../customXml/item1.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/" TargetMode="External"/>
+</Relationships>""",
+        )
+    return buf.getvalue()
+
+
+def test_docx_dropped_customxml_prunes_dangling_relationships():
+    data = _make_docx_with_rels()
+    assert _dangling_rels(data) == []
+    cleaned, actions = clean_docx(data)
+    with zipfile.ZipFile(io.BytesIO(cleaned)) as zf:
+        names = zf.namelist()
+        assert not any(n.startswith("customXml/") for n in names)
+        rels = zf.read("word/_rels/document.xml.rels").decode()
+        assert "../customXml/item1.xml" not in rels
+        assert 'Target="document.xml"' in rels
+        assert 'TargetMode="External"' in rels
+    assert _dangling_rels(cleaned) == []
+    assert any("prune dangling relationships" in a for a in actions)
 
 
 def _make_docx_with_body_text(body_text: str = "Claude wrote this.") -> bytes:

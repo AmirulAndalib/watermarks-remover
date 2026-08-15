@@ -7,6 +7,7 @@ Stdlib-first; PDF prefers optional exiftool/c2patool when present.
 from __future__ import annotations
 
 import io
+import posixpath
 import re
 import subprocess
 import zipfile
@@ -493,13 +494,51 @@ def inspect_docx(data: bytes) -> tuple[bool, bool, list[str], dict]:
     return has_c2pa, has_ai or has_c2pa, findings, {"parts": len(parts)}
 
 
+def _prune_dangling_relationships(
+    rels_name: str, raw: bytes, kept_names: set[str]
+) -> tuple[bytes, int]:
+    """Drop <Relationship> entries whose internal target part no longer exists.
+
+    Removing a part (e.g. a customXml tree) must also remove the relationships
+    that point at it, or the package is malformed: python-docx refuses to open
+    it and Word offers to repair it. External relationships (``TargetMode``)
+    and the package root (``Target="/"``) are left alone. ``rels_name`` is the
+    archive member like ``word/_rels/document.xml.rels``; ``kept_names`` is the
+    set of archive members that survive cleaning.
+    """
+    base = posixpath.dirname(posixpath.dirname(rels_name))
+    text = raw.decode("utf-8", errors="replace")
+    dropped = [0]
+
+    def _target_attr(tag: str) -> str:
+        m = re.search(r'\bTarget\s*=\s*"([^"]*)"', tag, re.I)
+        return m.group(1) if m else ""
+
+    def _drop(m: re.Match[str]) -> str:
+        tag = m.group(0)
+        if re.search(r"\bTargetMode\s*=", tag, re.I):
+            return tag  # external (http / mailto / ...) — never pruned
+        target = _target_attr(tag)
+        if target.startswith("/"):
+            resolved = posixpath.normpath(target.lstrip("/"))
+        else:
+            resolved = posixpath.normpath(posixpath.join(base, target))
+        if resolved in ("", "."):
+            return tag  # points at the package root
+        if resolved in kept_names:
+            return tag
+        dropped[0] += 1
+        return ""
+
+    new = re.sub(r"<Relationship\b[^>]*/>", _drop, text, flags=re.I)
+    return new.encode("utf-8"), dropped[0]
+
+
 def clean_docx(data: bytes) -> tuple[bytes, list[str]]:
     actions: list[str] = []
-    out_buf = io.BytesIO()
     budget = [0]
-    with zipfile.ZipFile(io.BytesIO(data)) as zin, zipfile.ZipFile(
-        out_buf, "w", compression=zipfile.ZIP_DEFLATED
-    ) as zout:
+    kept: list[tuple[zipfile.ZipInfo, bytes]] = []
+    with zipfile.ZipFile(io.BytesIO(data)) as zin:
         for info in zin.infolist():
             name = info.filename
             _check_zip_budget(info, budget)
@@ -569,6 +608,23 @@ def clean_docx(data: bytes) -> tuple[bytes, list[str]]:
                 if n:
                     actions.append(f"drop Content_Types customXml overrides x{n}")
                     raw = new.encode("utf-8")
+            kept.append((info, raw))
+
+    # Removing parts must not leave relationships pointing at them: prune every
+    # rels member against the set of parts that actually survive.
+    kept_names = {info.filename for info, _ in kept}
+    final: list[tuple[zipfile.ZipInfo, bytes]] = []
+    for info, raw in kept:
+        if info.filename.endswith(".rels"):
+            new_raw, n = _prune_dangling_relationships(info.filename, raw, kept_names)
+            if n:
+                actions.append(f"prune dangling relationships x{n} in {info.filename}")
+            raw = new_raw
+        final.append((info, raw))
+
+    out_buf = io.BytesIO()
+    with zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+        for info, raw in final:
             zout.writestr(info, raw)
     if not actions:
         actions.append("no DOCX metadata parts removed")
