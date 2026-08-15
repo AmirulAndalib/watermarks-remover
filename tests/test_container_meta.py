@@ -248,6 +248,100 @@ def test_docx_metadata_vendor_word_is_still_flagged():
     assert any("Claude" in f for f in findings)
 
 
+def _make_docx_with_invisible_body() -> bytes:
+    buf = io.BytesIO()
+    document = (
+        '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        "<w:body>"
+        "<w:p><w:r><w:t>Hello\u200b world\u2060 with\u00a0space </w:t></w:r></w:p>"
+        '<w:p><w:r><w:instrText xml:space="preserve"> FIELD \u200b KEEP </w:instrText></w:r></w:p>'
+        '<w:p><w:r><w:t xml:space="preserve">keep\u200bme </w:t></w:r></w:p>'
+        "</w:body></w:document>"
+    )
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "[Content_Types].xml",
+            """<?xml version="1.0"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+</Types>""",
+        )
+        zf.writestr("word/document.xml", document)
+        zf.writestr(
+            "docProps/core.xml",
+            '<?xml version="1.0"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"></cp:coreProperties>',
+        )
+    return buf.getvalue()
+
+
+def test_docx_layer_a_strips_invisible_body_chars():
+    data = _make_docx_with_invisible_body()
+    cleaned, actions = clean_docx(data)
+    assert any(a.startswith("layer A text: removed=") for a in actions)
+    with zipfile.ZipFile(io.BytesIO(cleaned)) as zf:
+        doc = zf.read("word/document.xml").decode()
+        # ZWSP / word joiner / NBSP removed from w:t runs...
+        assert "Hello\u200b" not in doc
+        assert "world\u2060" not in doc
+        assert "with\u00a0space" not in doc
+        # ...NBSP was replaced with a regular space, trailing space keeps preserve
+        assert '<w:t xml:space="preserve">Hello world with space </w:t>' in doc
+        # field codes are never touched
+        assert " FIELD \u200b KEEP " in doc
+        # existing xml:space is retained on cleaned runs
+        assert '<w:t xml:space="preserve">keepme </w:t>' in doc
+
+
+def test_docx_layer_a_can_be_disabled():
+    data = _make_docx_with_invisible_body()
+    cleaned, actions = clean_docx(data, also_layer_a_text=False)
+    assert not any(a.startswith("layer A text:") for a in actions)
+    with zipfile.ZipFile(io.BytesIO(cleaned)) as zf:
+        assert "Hello\u200b" in zf.read("word/document.xml").decode()
+
+
+def test_docx_layer_a_via_clean_container(tmp_path: Path):
+    src = tmp_path / "in.docx"
+    src.write_bytes(_make_docx_with_invisible_body())
+    dest = tmp_path / "out.docx"
+    result = clean_container(src, dest)
+    assert any(a.startswith("layer A text: removed=") for a in result["actions"])
+    with zipfile.ZipFile(dest) as zf:
+        doc = zf.read("word/document.xml").decode()
+        assert "Hello\u200b" not in doc
+        assert " FIELD \u200b KEEP " in doc
+
+
+def _make_odt_with_invisible_text() -> bytes:
+    buf = io.BytesIO()
+    content = (
+        '<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">'
+        "<office:body><office:text>"
+        '<text:p text:style-name="P1">Hello\u200b <text:span>world\u2060</text:span>!</text:p>'
+        "</office:text></office:body></office:document-content>"
+    )
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("mimetype", "application/vnd.oasis.opendocument.text")
+        zf.writestr("meta.xml", '<?xml version="1.0"?><office:document-meta/>')
+        zf.writestr("content.xml", content)
+        zf.writestr("META-INF/manifest.xml", '<?xml version="1.0"?><manifest:manifest/>')
+    return buf.getvalue()
+
+
+def test_odt_layer_a_strips_invisible_text():
+    data = _make_odt_with_invisible_text()
+    cleaned, actions = clean_odt(data)
+    assert any(a.startswith("layer A text: removed=") for a in actions)
+    with zipfile.ZipFile(io.BytesIO(cleaned)) as zf:
+        content = zf.read("content.xml").decode()
+        assert "\u200b" not in content
+        assert "\u2060" not in content
+        assert "<text:span>world</text:span>" in content
+
+
 def _make_odt(generator: str = "Anthropic Claude") -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
