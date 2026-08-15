@@ -425,6 +425,22 @@ DOCX_CUSTOM_PREFIXES = (
     "docProps/",
 )
 
+# Provenance fields in docProps/core.xml and docProps/app.xml that always come
+# out empty. dc:title is deliberately not listed: it is the document's own
+# heading, not provenance.
+DOCX_SCRUB_FIELDS = (
+    ("dc:creator", "dc:creator"),
+    ("cp:lastModifiedBy", "cp:lastModifiedBy"),
+    ("dc:description", "dc:description"),
+    ("cp:keywords", "cp:keywords"),
+    ("dc:subject", "dc:subject"),
+    ("cp:category", "cp:category"),
+    ("Application", "Application"),
+    ("AppVersion", "AppVersion"),
+    ("Company", "Company"),
+    ("Manager", "Manager"),
+)
+
 
 def _zip_namelist(data: bytes) -> list[str]:
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
@@ -500,55 +516,27 @@ def clean_docx(data: bytes) -> tuple[bytes, list[str]]:
                 actions.append(f"drop part {name}")
                 continue
             if name in DOCX_META_PARTS or name.startswith("docProps/"):
-                text = raw.decode("utf-8", errors="replace")
-                # Scrub known AI generator fields via simple regex on XML text nodes
-                new = text
-                for pat, repl, label in (
-                    (
-                        r"(<dc:creator[^>]*>)(.*?)(</dc:creator>)",
-                        None,
-                        "dc:creator",
-                    ),
-                    (
-                        r"(<cp:lastModifiedBy[^>]*>)(.*?)(</cp:lastModifiedBy>)",
-                        None,
-                        "cp:lastModifiedBy",
-                    ),
-                    (
-                        r"(<Application[^>]*>)(.*?)(</Application>)",
-                        None,
-                        "Application",
-                    ),
-                    (
-                        r"(<AppVersion[^>]*>)(.*?)(</AppVersion>)",
-                        None,
-                        "AppVersion",
-                    ),
-                ):
-                    def _sub(m: re.Match[str], _label=label) -> str:
-                        inner = m.group(2)
-                        if AI_META_NAME_RE.search(inner) or AI_META_NAME_RE.search(_label):
-                            actions.append(f"scrub {name} field {_label}")
-                            return m.group(1) + m.group(3)
-                        # Always clear Application if it looks like AI
-                        if _label in ("Application", "AppVersion") and re.search(
-                            r"claude|openai|anthropic|gemini|chatgpt|synthid|copilot",
-                            inner,
-                            re.I,
-                        ):
-                            actions.append(f"scrub {name} field {_label}")
-                            return m.group(1) + m.group(3)
-                        return m.group(0)
-
-                    new = re.sub(pat, _sub, new, flags=re.I | re.DOTALL)
-                # Drop custom.xml entirely if AI-ish
-                if name.endswith("custom.xml") and (
-                    _blob_hits(raw)[1] or AI_META_NAME_RE.search(text)
-                ):
+                # docProps/custom.xml holds arbitrary user properties — a
+                # provenance channel. The part is optional, so drop it whole.
+                if name.endswith("custom.xml"):
                     actions.append(f"drop part {name}")
                     continue
+                text = raw.decode("utf-8", errors="replace")
+                # Empty the provenance fields unconditionally (dc:title is not
+                # in DOCX_SCRUB_FIELDS). Keeping the tags keeps the XML schema
+                # valid; Word tolerates empty core/app properties.
+                new = text
+                for tag, label in DOCX_SCRUB_FIELDS:
+                    pat = rf"(<{tag}\b[^>]*>)(.*?)(</{tag}>)"
+
+                    def _empty(m: re.Match[str], _label=label) -> str:
+                        if m.group(2):
+                            actions.append(f"scrub {name} field {_label}")
+                        return m.group(1) + m.group(3)
+
+                    new = re.sub(pat, _empty, new, flags=re.I | re.DOTALL)
                 raw = new.encode("utf-8")
-            # content types: leave as-is (removing overrides for dropped customXml is nice-to-have)
+            # content types: remove overrides for parts that no longer exist
             if name == "[Content_Types].xml":
                 text = raw.decode("utf-8", errors="replace")
                 new, n = re.subn(
@@ -558,6 +546,14 @@ def clean_docx(data: bytes) -> tuple[bytes, list[str]]:
                 )
                 if n:
                     actions.append(f"drop Content_Types customXml overrides x{n}")
+                    raw = new.encode("utf-8")
+                new, n = re.subn(
+                    r'<Override\b[^>]*PartName="/docProps/custom\.xml"[^>]*/>',
+                    "",
+                    raw.decode("utf-8", errors="replace"),
+                )
+                if n:
+                    actions.append(f"drop Content_Types custom.xml override x{n}")
                     raw = new.encode("utf-8")
             zout.writestr(info, raw)
     if not actions:
