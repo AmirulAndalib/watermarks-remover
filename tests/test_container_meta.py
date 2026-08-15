@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import io
+import json
 import posixpath
 import re
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "service" / "scripts"
@@ -25,6 +29,15 @@ from container_meta import (  # noqa: E402
     inspect_markdown,
     inspect_svg,
 )
+
+
+def _run(script: str, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(SCRIPTS / script), *args],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
 
 
 def test_markdown_frontmatter():
@@ -644,3 +657,36 @@ def test_pdf_degraded_clean_without_crash(tmp_path: Path):
     assert dest.is_file()
     assert actions
     assert meta.get("mode") in ("exiftool", "stdlib-xmp", "copy")
+
+
+def test_clean_container_accepts_explicit_fmt(tmp_path: Path):
+    """A .bak source with no detectable magic bytes still cleans when fmt is pinned."""
+    src = tmp_path / "backup.md.bak"
+    src.write_text("---\ngenerator: OpenAI\n---\nHi\u200b\n", encoding="utf-8")
+    dest = tmp_path / "out.md"
+    result = clean_container(src, dest, fmt="markdown")
+    assert result["format"] == "markdown"
+    body = dest.read_text(encoding="utf-8")
+    assert "generator" not in body
+    assert "\u200b" not in body
+
+
+@pytest.mark.parametrize(
+    "ext,make_bytes",
+    [
+        ("md", lambda: (Path(__file__).resolve().parent / "fixtures" / "sample_ai.md").read_bytes()),
+        ("html", lambda: (Path(__file__).resolve().parent / "fixtures" / "sample_ai.html").read_bytes()),
+        ("svg", lambda: (Path(__file__).resolve().parent / "fixtures" / "sample_meta.svg").read_bytes()),
+        ("docx", _make_docx_with_app),
+        ("odt", _make_odt),
+    ],
+)
+def test_clean_file_in_place_for_every_container_ext(tmp_path: Path, ext: str, make_bytes):
+    path = tmp_path / f"a.{ext}"
+    path.write_bytes(make_bytes())
+    r = _run("clean_file.py", str(path), "--in-place", "--json")
+    assert r.returncode == 0, r.stderr
+    assert path.with_suffix(path.suffix + ".bak").is_file()
+    data = json.loads(r.stdout)
+    assert data["kind"] == "container"
+    assert data["format"] == {"docx": "docx", "odt": "odt", "svg": "svg", "md": "markdown", "html": "html"}[ext]
