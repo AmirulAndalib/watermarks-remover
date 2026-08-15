@@ -853,14 +853,21 @@ def inspect_container(path: Path) -> ContainerInspectReport:
 def clean_container(
     path: Path,
     dest: Path,
+    fmt: str | None = None,
     *,
     also_layer_a_text: bool = True,
 ) -> dict[str, Any]:
-    """Clean container metadata; optionally Layer-A scrub text bodies for md/html."""
+    """Clean container metadata; optionally Layer-A scrub text bodies for md/html.
+
+    ``fmt`` pins the container format when the caller already knows it. This
+    matters for ``--in-place`` flows where *path* is a ``.bak`` copy whose
+    suffix would otherwise make markdown/HTML (which have no magic bytes)
+    classify as ``unknown``.
+    """
     from text_unicode import clean_text  # local import to avoid cycles
 
     data = path.read_bytes()
-    fmt = detect_container_format(path, data)
+    fmt = fmt or detect_container_format(path, data)
     actions: list[str] = []
     dest.parent.mkdir(parents=True, exist_ok=True)
     meta: dict[str, Any] = {"format": fmt}
