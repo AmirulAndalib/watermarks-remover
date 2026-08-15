@@ -45,6 +45,36 @@ ln -sfn "$(pwd)/skills/remove-ai-marks" ~/.grok/skills/remove-ai-marks
 
 Invoke with `/remove-ai-marks` or ask to “strip AI watermarks / C2PA / Claude marks / SynthID-class text.”
 
+### Optional Cursor text-only skill
+
+[`skills/clean-user-facing-text/`](skills/clean-user-facing-text/) is a
+self-contained Cursor skill for authorized manuscripts, documentation, and web
+copy. It excludes image, C2PA, service, and external-model tooling.
+
+Install it into `~/.cursor/skills/clean-user-facing-text`:
+
+```bash
+python3 install_skill.py
+```
+
+On Windows, use `py install_skill.py`. The `install-skill.sh` wrapper is
+provided for macOS/Linux shells. Existing installations are preserved unless
+you pass `--force`; replacement is staged first and the previous install is
+kept as a uniquely named backup.
+
+Skill invocation is model-selected. Projects that explicitly adopt this
+workflow can also copy the optional rule:
+
+```bash
+mkdir -p /path/to/project/.cursor/rules
+cp integrations/cursor/clean-user-facing-text.mdc \
+  /path/to/project/.cursor/rules/clean-user-facing-text.mdc
+```
+
+For all projects, put the same instruction in Cursor **User Rules** instead.
+Rules improve consistency but remain model instructions; Cursor does not expose
+a deterministic pre-send filter for final chat responses.
+
 ### Start the service
 
 The fastest path is a local HTTP server (Python 3.10+ stdlib only — no deps, no Docker):
@@ -617,6 +647,18 @@ See [`skills/remove-ai-marks/references/ethics.md`](skills/remove-ai-marks/refer
 
 **Responsible use:** This project is for content you own or are authorized to process. Users must adhere to local regulations and use it responsibly. The developers disclaim any liability for potential misuse by users.
 
+## Ecosystem
+
+Third-party projects that wrap or complement this repository, listed for discoverability only. **They are not maintained, endorsed, or supported by this project.** This project does not review their code, vouch for their behavior or guarantees, or take responsibility for anything you install or run from this list. Each project is governed by its own license, maintainers, and documentation — read those before using it.
+
+### MetaClean — desktop GUI
+
+[MetaClean](https://github.com/Moresyl/metaclean) is an independent MIT-licensed Rust/Tauri desktop application (Windows, macOS, Linux) providing a packaged native GUI for drag-and-drop metadata cleaning, with a system tray and Explorer integration. It is a separate codebase: it does not call this repository's Python service, and its supported formats and cleaning guarantees differ from this project's. See its README for details.
+
+### Adding a project
+
+To register a project here, open a PR adding a short entry — project name, what it wraps or adds, and a link to its own repository. Keep entries brief and factual; do not claim compatibility with, or endorsement by, this project.
+
 ## Tests
 
 ```bash
@@ -626,6 +668,10 @@ make smoke                          # quick CLI smoke on fixtures
 ```
 
 ## Changelog
+
+### Unreleased
+
+- **Fix `inspect` missing Layer A carriers in markdown/HTML**: `inspect_container` never scanned the document body, so a `.md` or `.html` file holding invisible Unicode came back `suspicious: false` while `clean_container` went on to strip it — the same bytes saved as `.txt` were correctly flagged. The scan now runs for exactly the formats `clean_container` scrubs, so inspect predicts clean. Container reports gain `suspicious_total` (the same key `TextInspectReport` uses, so the HTTP `suspicious` flag and the `inspect_file` exit code pick it up) and `layer_a_hits`
 
 ### [v0.5.0](https://github.com/guillaumemeyer/watermarks-remover/releases/tag/v0.5.0) — service & Docker distribution, HTTP API, and verification harnesses
 
