@@ -494,6 +494,61 @@ def inspect_docx(data: bytes) -> tuple[bool, bool, list[str], dict]:
     return has_c2pa, has_ai or has_c2pa, findings, {"parts": len(parts)}
 
 
+def _scrub_docx_text(xml_text: str) -> tuple[str, int, int]:
+    """Run Layer A over the ``<w:t>`` text runs of a DOCX part.
+
+    Only ``w:t`` nodes are touched: field codes (``w:instrText``), run/paragraph
+    properties and the surrounding XML are left byte-identical. If leading or
+    trailing whitespace survives the clean, the node keeps
+    ``xml:space="preserve"`` so Word does not trim it.
+    """
+    from text_unicode import clean_text  # local import to avoid cycles
+
+    removed = 0
+    replaced = 0
+
+    def _repl(m: re.Match[str]) -> str:
+        nonlocal removed, replaced
+        open_tag, inner, close_tag = m.group(1), m.group(2), m.group(3)
+        new_inner, stats = clean_text(inner)
+        if not (stats["removed_count"] or stats["replaced_count"]):
+            return m.group(0)
+        removed += stats["removed_count"]
+        replaced += stats["replaced_count"]
+        if (new_inner[:1].isspace() or new_inner[-1:].isspace()) and "xml:space" not in open_tag:
+            open_tag = open_tag[:-1] + ' xml:space="preserve">'
+        return open_tag + new_inner + close_tag
+
+    new = re.sub(r"(<w:t\b[^>]*>)(.*?)(</w:t>)", _repl, xml_text, flags=re.S)
+    return new, removed, replaced
+
+
+def _scrub_odt_text(xml_text: str) -> tuple[str, int, int]:
+    """Run Layer A over ODF paragraph text (``text:p`` content, incl. spans).
+
+    ``text:span``/``text:tab``/``text:s`` children live inside the paragraph,
+    so cleaning the paragraph content covers the visible text. The markup
+    itself is untouched.
+    """
+    from text_unicode import clean_text  # local import to avoid cycles
+
+    removed = 0
+    replaced = 0
+
+    def _repl(m: re.Match[str]) -> str:
+        nonlocal removed, replaced
+        open_tag, inner, close_tag = m.group(1), m.group(2), m.group(3)
+        new_inner, stats = clean_text(inner)
+        if not (stats["removed_count"] or stats["replaced_count"]):
+            return m.group(0)
+        removed += stats["removed_count"]
+        replaced += stats["replaced_count"]
+        return open_tag + new_inner + close_tag
+
+    new = re.sub(r"(<text:p\b[^>]*>)(.*?)(</text:p>)", _repl, xml_text, flags=re.S)
+    return new, removed, replaced
+
+
 def _prune_dangling_relationships(
     rels_name: str, raw: bytes, kept_names: set[str]
 ) -> tuple[bytes, int]:
@@ -534,9 +589,11 @@ def _prune_dangling_relationships(
     return new.encode("utf-8"), dropped[0]
 
 
-def clean_docx(data: bytes) -> tuple[bytes, list[str]]:
+def clean_docx(data: bytes, *, also_layer_a_text: bool = True) -> tuple[bytes, list[str]]:
     actions: list[str] = []
     budget = [0]
+    layer_removed = 0
+    layer_replaced = 0
     kept: list[tuple[zipfile.ZipInfo, bytes]] = []
     with zipfile.ZipFile(io.BytesIO(data)) as zin:
         for info in zin.infolist():
@@ -608,6 +665,14 @@ def clean_docx(data: bytes) -> tuple[bytes, list[str]]:
                 if n:
                     actions.append(f"drop Content_Types customXml overrides x{n}")
                     raw = new.encode("utf-8")
+            # Layer A over the visible body: headers/footers/footnotes included.
+            if also_layer_a_text and name.startswith("word/") and name.endswith(".xml"):
+                text = raw.decode("utf-8", errors="replace")
+                new, r, rp = _scrub_docx_text(text)
+                if r or rp:
+                    layer_removed += r
+                    layer_replaced += rp
+                    raw = new.encode("utf-8")
             kept.append((info, raw))
 
     # Removing parts must not leave relationships pointing at them: prune every
@@ -626,6 +691,8 @@ def clean_docx(data: bytes) -> tuple[bytes, list[str]]:
     with zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as zout:
         for info, raw in final:
             zout.writestr(info, raw)
+    if layer_removed or layer_replaced:
+        actions.append(f"layer A text: removed={layer_removed} replaced={layer_replaced}")
     if not actions:
         actions.append("no DOCX metadata parts removed")
     return out_buf.getvalue(), actions
@@ -658,10 +725,12 @@ def inspect_odt(data: bytes) -> tuple[bool, bool, list[str], dict]:
     return has_c2pa, has_ai or has_c2pa, findings, {}
 
 
-def clean_odt(data: bytes) -> tuple[bytes, list[str]]:
+def clean_odt(data: bytes, *, also_layer_a_text: bool = True) -> tuple[bytes, list[str]]:
     actions: list[str] = []
     out_buf = io.BytesIO()
     budget = [0]
+    layer_removed = 0
+    layer_replaced = 0
     with zipfile.ZipFile(io.BytesIO(data)) as zin, zipfile.ZipFile(
         out_buf, "w", compression=zipfile.ZIP_DEFLATED
     ) as zout:
@@ -704,7 +773,17 @@ def clean_odt(data: bytes) -> tuple[bytes, list[str]]:
                 ):
                     actions.append(f"drop part {name} (AI/C2PA markers)")
                     continue
+            # Layer A over the visible paragraph text of the body part.
+            if also_layer_a_text and name == "content.xml":
+                text = raw.decode("utf-8", errors="replace")
+                new, r, rp = _scrub_odt_text(text)
+                if r or rp:
+                    layer_removed += r
+                    layer_replaced += rp
+                    raw = new.encode("utf-8")
             zout.writestr(info, raw)
+    if layer_removed or layer_replaced:
+        actions.append(f"layer A text: removed={layer_removed} replaced={layer_replaced}")
     if not actions:
         actions.append("no ODT metadata removed")
     return out_buf.getvalue(), actions
@@ -946,7 +1025,7 @@ def clean_container(
     *,
     also_layer_a_text: bool = True,
 ) -> dict[str, Any]:
-    """Clean container metadata; optionally Layer-A scrub text bodies for md/html."""
+    """Clean container metadata; optionally Layer-A scrub text bodies."""
     from text_unicode import clean_text  # local import to avoid cycles
 
     data = path.read_bytes()
@@ -962,10 +1041,10 @@ def clean_container(
         actions, meta_extra = clean_pdf(path, dest)
         meta.update(meta_extra)
     elif fmt == "docx":
-        cleaned, actions = clean_docx(data)
+        cleaned, actions = clean_docx(data, also_layer_a_text=also_layer_a_text)
         safe_write_bytes(dest, cleaned)
     elif fmt == "odt":
-        cleaned, actions = clean_odt(data)
+        cleaned, actions = clean_odt(data, also_layer_a_text=also_layer_a_text)
         safe_write_bytes(dest, cleaned)
     elif fmt == "html":
         text = data.decode("utf-8", errors="surrogateescape")
