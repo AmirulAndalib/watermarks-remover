@@ -63,7 +63,9 @@ def scan_file(
             s_rep = score_text_stylometry(text, path=name)
             item["stylometry"] = s_rep.to_dict()
             if s_rep.score >= 0.65:
-                item["findings"].append(f"stylometry [high_probability] score {s_rep.score:.2f} ({s_rep.confidence_level})")
+                item["findings"].append(
+                    f"stylometry [high_probability] score {s_rep.score:.2f} ({s_rep.confidence_level})"
+                )
                 item["confidence"].append("probable")
                 item["suspicious_total"] += 1
         return item
@@ -98,7 +100,9 @@ def scan_file(
             s_rep = score_text_stylometry(text, path=name)
             stylometry_dict = s_rep.to_dict()
             if s_rep.score >= 0.65:
-                findings.append(f"stylometry [high_probability] score {s_rep.score:.2f} ({s_rep.confidence_level})")
+                findings.append(
+                    f"stylometry [high_probability] score {s_rep.score:.2f} ({s_rep.confidence_level})"
+                )
                 confidences.append("probable")
                 suspicious += 1
 
@@ -152,7 +156,9 @@ def aggregate(files: list[dict[str, Any]]) -> dict[str, Any]:
     return summary
 
 
-def print_human_report(files: list[dict[str, Any]], summary: dict[str, Any], extra_header: dict[str, Any] | None = None) -> None:
+def print_human_report(
+    files: list[dict[str, Any]], summary: dict[str, Any], extra_header: dict[str, Any] | None = None
+) -> None:
     """Shared plain-text rendering for audit scripts."""
     for key, value in (extra_header or {}).items():
         print(f"{key}: {value}")
@@ -164,5 +170,5 @@ def print_human_report(files: list[dict[str, Any]], summary: dict[str, Any], ext
     print(f"Actionable files: {summary['actionable_files']}")
     print(f"Findings by confidence: {summary['findings_by_confidence']}")
     for item in files:
-        for msg, conf in zip(item.get("findings", []), item.get("confidence", [])):
+        for msg, conf in zip(item.get("findings", []), item.get("confidence", []), strict=False):
             print(f"  [{conf}] {item['path']}: {msg}")
