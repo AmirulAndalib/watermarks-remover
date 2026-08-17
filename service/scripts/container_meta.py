@@ -14,6 +14,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
 from common import (
     classify_finding_confidence,
     safe_arg,
@@ -25,7 +26,6 @@ from common import (
 from image_meta import (
     AI_META_HINTS,
     C2PA_MARKERS,
-    detect_format as detect_image_format,
     inspect_isobmff,
     inspect_jpeg,
     inspect_png,
@@ -35,6 +35,9 @@ from image_meta import (
     strip_jpeg,
     strip_png,
     strip_webp,
+)
+from image_meta import (
+    detect_format as detect_image_format,
 )
 
 # Frontmatter / meta keys that often carry AI provenance
@@ -102,9 +105,7 @@ class ContainerInspectReport:
             "has_c2pa": self.has_c2pa,
             "has_ai_metadata": self.has_ai_metadata,
             "findings": self.findings,
-            "findings_confidence": [
-                classify_finding_confidence(f) for f in self.findings
-            ],
+            "findings_confidence": [classify_finding_confidence(f) for f in self.findings],
             "tools": self.tools,
             "details": self.details,
             "notes": self.notes,
@@ -192,7 +193,7 @@ def _inspect_embedded_data_uris(text: str) -> tuple[bool, bool, list[str]]:
                 data = base64.b64decode(raw_b64)
             else:
                 data = urllib.parse.unquote_to_bytes(payload)
-        except Exception:
+        except Exception:  # noqa: S112 - malformed data URI; skip to next match
             continue
 
         if not data:
@@ -255,17 +256,11 @@ def _clean_embedded_data_uris(
 
         try:
             if fmt == "png":
-                cleaned_bytes, sub_actions = strip_png(
-                    data, strip_all_text=strip_all_metadata
-                )
+                cleaned_bytes, sub_actions = strip_png(data, strip_all_text=strip_all_metadata)
             elif fmt == "jpeg":
-                cleaned_bytes, sub_actions = strip_jpeg(
-                    data, strip_all_app=strip_all_metadata
-                )
+                cleaned_bytes, sub_actions = strip_jpeg(data, strip_all_app=strip_all_metadata)
             elif fmt == "webp":
-                cleaned_bytes, sub_actions = strip_webp(
-                    data, strip_all_metadata=strip_all_metadata
-                )
+                cleaned_bytes, sub_actions = strip_webp(data, strip_all_metadata=strip_all_metadata)
             elif fmt in ("avif", "heic"):
                 cleaned_bytes, sub_actions = strip_isobmff(
                     data, fmt, strip_all_metadata=strip_all_metadata
@@ -278,9 +273,7 @@ def _clean_embedded_data_uris(
         if not any("drop" in a.lower() for a in sub_actions) or cleaned_bytes == data:
             return full_match
 
-        actions.append(
-            f"cleaned embedded data:image/{mime} ({', '.join(sub_actions[:2])})"
-        )
+        actions.append(f"cleaned embedded data:image/{mime} ({', '.join(sub_actions[:2])})")
 
         if is_b64:
             new_b64 = base64.b64encode(cleaned_bytes).decode("ascii")
@@ -438,9 +431,9 @@ def _is_cms_generator_meta(tag: str) -> bool:
     ).lower()
     if name_or_prop != "generator":
         return False
-    if _GENERATOR_AI_RE.search(attrs.get("content", "")) or _GENERATOR_AI_RE.search(tag):
-        return False
-    return True
+    return not (_GENERATOR_AI_RE.search(attrs.get("content", "")) or _GENERATOR_AI_RE.search(tag))
+
+
 _JSONLD_RE = re.compile(
     r"<script\b[^>]*type\s*=\s*[\"']application/ld\+json[\"'][^>]*>.*?</script>",
     re.I | re.DOTALL,
@@ -530,6 +523,7 @@ def clean_html(text: str) -> tuple[str, list[str]]:
 # SVG
 # ---------------------------------------------------------------------------
 
+
 def inspect_svg(data: bytes) -> tuple[bool, bool, list[str], dict]:
     findings: list[str] = []
     has_c2pa, has_ai, hits = _blob_hits(data)
@@ -579,6 +573,7 @@ def clean_svg(data: bytes) -> tuple[bytes, list[str]]:
     if n:
         actions.append(f"drop xmpmeta x{n}")
         text = new
+
     # Drop comments that look like provenance
     def _cmt(m: re.Match[str]) -> str:
         body = m.group(0)
@@ -823,9 +818,9 @@ def clean_docx(data: bytes, *, also_layer_a_text: bool = True) -> tuple[bytes, l
                 for tag, label in DOCX_SCRUB_FIELDS:
                     pat = rf"(<{tag}\b[^>]*>)(.*?)(</{tag}>)"
 
-                    def _empty(m: re.Match[str], _label=label) -> str:
+                    def _empty(m: re.Match[str], _label=label, _name=name) -> str:
                         if m.group(2):
-                            actions.append(f"scrub {name} field {_label}")
+                            actions.append(f"scrub {_name} field {_label}")
                         return m.group(1) + m.group(3)
 
                     new = re.sub(pat, _empty, new, flags=re.I | re.DOTALL)
@@ -864,12 +859,12 @@ def clean_docx(data: bytes, *, also_layer_a_text: bool = True) -> tuple[bytes, l
     kept_names = {info.filename for info, _ in kept}
     final: list[tuple[zipfile.ZipInfo, bytes]] = []
     for info, raw in kept:
+        part_raw = raw
         if info.filename.endswith(".rels"):
-            new_raw, n = _prune_dangling_relationships(info.filename, raw, kept_names)
+            part_raw, n = _prune_dangling_relationships(info.filename, raw, kept_names)
             if n:
                 actions.append(f"prune dangling relationships x{n} in {info.filename}")
-            raw = new_raw
-        final.append((info, raw))
+        final.append((info, part_raw))
 
     out_buf = io.BytesIO()
     with zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as zout:
@@ -915,9 +910,10 @@ def clean_odt(data: bytes, *, also_layer_a_text: bool = True) -> tuple[bytes, li
     budget = [0]
     layer_removed = 0
     layer_replaced = 0
-    with zipfile.ZipFile(io.BytesIO(data)) as zin, zipfile.ZipFile(
-        out_buf, "w", compression=zipfile.ZIP_DEFLATED
-    ) as zout:
+    with (
+        zipfile.ZipFile(io.BytesIO(data)) as zin,
+        zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as zout,
+    ):
         for info in zin.infolist():
             name = info.filename
             _check_zip_budget(info, budget)
@@ -933,6 +929,7 @@ def clean_odt(data: bytes, *, also_layer_a_text: bool = True) -> tuple[bytes, li
                 if n:
                     actions.append("drop meta:generator")
                     text = new
+
                 # scrub creator-like if AI
                 def _creator(m: re.Match[str]) -> str:
                     if AI_META_NAME_RE.search(m.group(0)):
@@ -1131,6 +1128,7 @@ def clean_pdf(path: Path, dest: Path) -> tuple[list[str], dict]:
 # Unified API
 # ---------------------------------------------------------------------------
 
+
 def inspect_container(path: Path) -> ContainerInspectReport:
     data = path.read_bytes()
     fmt = detect_container_format(path, data)
@@ -1169,15 +1167,17 @@ def inspect_container(path: Path) -> ContainerInspectReport:
         layer_a_total = ta["suspicious_total"]
         layer_a_hits = ta["hits"]
         for h in layer_a_hits:
-            findings.append(
-                f"layer-a: {h['codepoint']} {h['label']} x{h['count']} ({h['kind']})"
-            )
+            findings.append(f"layer-a: {h['codepoint']} {h['label']} x{h['count']} ({h['kind']})")
 
     notes: list[str] = []
     if fmt == "pdf":
-        notes.append("PDF inspection is best-effort; exiftool/c2patool give more reliable metadata detection")
+        notes.append(
+            "PDF inspection is best-effort; exiftool/c2patool give more reliable metadata detection"
+        )
     elif fmt == "docx":
-        notes.append("DOCX: only metadata/provenance parts are scanned; visible body text is ignored")
+        notes.append(
+            "DOCX: only metadata/provenance parts are scanned; visible body text is ignored"
+        )
     if "unsupported" in details:
         notes.append(f"format not fully inspected: {fmt}")
     if layer_a_total:
