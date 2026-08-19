@@ -64,6 +64,71 @@ and the Skills API enforce: spec-only frontmatter (`name`, `description`,
 `name` of at most 64 characters matching the directory, a non-empty
 `description` of at most 1024 characters, and a payload under 30 MB.
 
+### Automatic cleaning via hook (deterministic)
+
+A skill is an instruction: the model decides whether to invoke it, and the
+model is the thing producing the marks. A **hook** is executed by the harness
+on every matching tool call, cooperation not required. That makes the hook the
+deterministic half of this workflow.
+
+The plugin registers a `PostToolUse` hook on `Write|Edit|MultiEdit|NotebookEdit`
+that runs [`service/scripts/hook_written_file.py`](service/scripts/hook_written_file.py)
+against the file the agent just wrote. Two modes, matching the pre-commit
+convention of check-by-default:
+
+| Mode | Behaviour |
+| --- | --- |
+| `check` (default) | Reports provenance marks, leaves the file alone. Findings go to the model (exit 2), so it can offer to clean them. |
+| `clean` | Strips the marks in place, then tells the model the file on disk changed. |
+
+Set the mode from the plugin's settings (**Hook mode** in `/plugin manage`,
+read by the hook as `CLAUDE_PLUGIN_OPTION_HOOK_MODE`), or with
+`WATERMARKS_HOOK_MODE=clean` in the environment. The hook command deliberately
+does **not** interpolate `${user_config.hook_mode}`: Claude Code refuses to run
+a hook that references an option the user has never opened `/plugin manage` to
+set — a declared `default` does not satisfy it — so interpolating it would mean
+the hook silently never runs on a fresh install. Detection reuses `audit_lib`'s
+`scan_file` / `is_actionable`, so the hook, the pre-commit gate, and the CI
+SARIF export agree on what counts as actionable; cleaning shells out to
+`clean_file.py`, so no cleaning logic is duplicated. `clean` mode writes to a
+sibling temp file and swaps only on a real difference, so files that were
+already clean keep their mtime and don't retrigger file watchers.
+
+Without the plugin, wire it in `~/.claude/settings.json` (or a project
+`.claude/settings.json`) yourself:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["/path/to/watermarks-remover/service/scripts/hook_written_file.py",
+                     "--mode", "check"],
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+On Windows, replace `python3` with `py`.
+
+**What a hook cannot do.** No hook can rewrite the assistant's chat message
+before you read it. Claude Code's `Stop` hook receives `last_assistant_message`
+read-only, and there is no pre-send filter for final responses — the same limit
+this project already documents for Cursor rules. So the deterministic guarantee
+covers **files the agent writes**, plus the
+[pre-commit gate](#pre-commit-hook) for anything on its way into git. Text that
+only ever exists in the chat transcript still depends on the skill workflow,
+which is model-instruction-based and therefore best-effort.
+
 ### Claude Code plugin (marketplace)
 
 The repository is also a Claude Code **plugin** and a single-plugin
@@ -997,6 +1062,20 @@ make smoke                          # quick CLI smoke on fixtures
   then `/plugin install watermarks-remover@watermarks-remover`, and update in place.
   `make plugin-validate` runs `claude plugin validate . --strict`;
   `tests/test_plugin_manifest.py` checks the manifests without the CLI.
+- **Deterministic auto-cleaning via a `PostToolUse` hook**
+  (`hooks/hooks.json` + `service/scripts/hook_written_file.py`): after the
+  agent writes a file, the harness runs the hook whether or not the model
+  cooperates. `check` (default) reports marks to the model; `clean` strips
+  them in place and tells the model the file moved, swapping only on a real
+  difference so clean files keep their mtime. Mode comes from the plugin's
+  `hook_mode` setting or `WATERMARKS_HOOK_MODE`. Detection reuses
+  `audit_lib.scan_file` / `is_actionable`, so the hook, the pre-commit gate,
+  and the CI SARIF export agree. Mode is read from the environment rather
+  than interpolated as `${user_config.hook_mode}`, because Claude Code
+  refuses to run a hook referencing an option the user has never set, which
+  would leave the hook silently dead on a fresh install. A hook still cannot
+  rewrite the assistant's chat message — no such hook point exists — so that
+  path stays best-effort.
 
 - **Layer B rewriting is now iterative and evaluation-driven**: each round
   generates `--candidates` variants (default 1,

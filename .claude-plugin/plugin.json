@@ -20,5 +20,13 @@
     "unicode",
     "synthid",
     "ai-detection"
-  ]
+  ],
+  "userConfig": {
+    "hook_mode": {
+      "type": "string",
+      "title": "Hook mode",
+      "description": "What the PostToolUse hook does with files the agent writes: 'check' reports provenance marks and leaves the file alone, 'clean' strips them in place.",
+      "default": "check"
+    }
+  }
 }

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_MANIFEST = ROOT / ".claude-plugin" / "plugin.json"
+HOOKS_MANIFEST = ROOT / "hooks" / "hooks.json"
 MARKETPLACE_MANIFEST = ROOT / ".claude-plugin" / "marketplace.json"
 
 KEBAB_CASE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -99,3 +101,54 @@ def test_plugin_name_does_not_collide_with_a_bundled_skill_name(plugin):
     skills = {path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md")}
 
     assert plugin["name"] not in skills
+
+
+# --------------------------------------------------------------------------
+# hooks
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def hooks() -> dict:
+    return json.loads(HOOKS_MANIFEST.read_text(encoding="utf-8"))
+
+
+def test_post_tool_use_hook_covers_the_file_writing_tools(hooks):
+    matchers = [entry["matcher"] for entry in hooks["hooks"]["PostToolUse"]]
+
+    assert matchers, "no PostToolUse hook registered"
+    covered = "|".join(matchers).split("|")
+    assert {"Write", "Edit"} <= set(covered)
+
+
+def test_hook_command_points_at_a_script_that_exists(hooks):
+    # ${CLAUDE_PLUGIN_ROOT} is the plugin root, which for this repo-as-plugin
+    # is the repository root.
+    for entry in hooks["hooks"]["PostToolUse"]:
+        for hook in entry["hooks"]:
+            assert hook["type"] == "command"
+            script = next(arg for arg in hook["args"] if arg.startswith("${CLAUDE_PLUGIN_ROOT}/"))
+            resolved = ROOT / script.removeprefix("${CLAUDE_PLUGIN_ROOT}/")
+            assert resolved.is_file(), resolved
+
+
+def test_hook_mode_is_configurable_and_defaults_to_the_reporting_mode(plugin):
+    sys.path.insert(0, str(ROOT / "service" / "scripts"))
+    import hook_written_file
+
+    option = plugin["userConfig"]["hook_mode"]
+    assert option["default"] == hook_written_file.DEFAULT_MODE == "check"
+    assert set(hook_written_file.MODES) == {"check", "clean"}
+
+
+def test_hook_command_never_substitutes_an_unset_plugin_option(hooks):
+    # Regression: Claude Code 2.1.235 refuses to run a hook whose command
+    # references ${user_config.KEY} before the user has set that option in
+    # /plugin manage -- a declared `default` does not satisfy it, and the hook
+    # fails with "Plugin option ... isn't set" instead of running. Substituting
+    # the mode there meant the hook silently never ran on a fresh install; it
+    # reads CLAUDE_PLUGIN_OPTION_HOOK_MODE from the environment instead.
+    for entry in hooks["hooks"]["PostToolUse"]:
+        for hook in entry["hooks"]:
+            rendered = json.dumps([hook.get("command"), *hook.get("args", [])])
+            assert "user_config" not in rendered
