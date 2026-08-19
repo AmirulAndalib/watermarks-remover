@@ -33,6 +33,83 @@ Service path: [`service/`](service/)
 
 The skill ships **no code** — it calls the service over HTTP. Install the skill (markdown only) and start the service, then set `WATERMARKS_SERVICE_URL` if it is not `http://127.0.0.1:8765`.
 
+One installer covers every supported host (Python 3.10+ stdlib, no dependencies):
+
+```bash
+python3 install_skill.py --skill remove-ai-marks --target claude-code
+```
+
+| Host | Target | Lands in |
+| --- | --- | --- |
+| Claude Code (personal) | `--target claude-code` | `~/.claude/skills/<skill>` (honors `CLAUDE_CONFIG_DIR`) |
+| Claude Code (project) | `--target claude-project --project-dir PATH` | `PATH/.claude/skills/<skill>` |
+| Cowork, claude.ai, cloud sessions, routines | `--target cowork` | `dist/<skill>.zip` to upload under **Customize → Skills** |
+| Cursor | `--target cursor` (default) | `~/.cursor/skills/<skill>` |
+
+Shipped skills: `remove-ai-marks` (full, service-backed) and
+`clean-user-facing-text` (text only, self-contained). `--list` prints them.
+Existing installations are preserved unless you pass `--force`; replacement is
+staged first and the previous install is kept as a uniquely named backup.
+`--link` symlinks this checkout instead of copying, so edits are picked up
+live. On Windows, use `py install_skill.py ...`; the `install-skill.sh` wrapper
+is provided for macOS/Linux shells.
+
+Before writing anything, the installer validates the skill against the
+[Agent Skills](https://agentskills.io) packaging rules that claude.ai uploads
+and the Skills API enforce: spec-only frontmatter (`name`, `description`,
+`license`, `compatibility`, `metadata`, `allowed-tools`), a lowercase hyphenated
+`name` of at most 64 characters matching the directory, a non-empty
+`description` of at most 1024 characters, and a payload under 30 MB.
+
+### Claude Code
+
+```bash
+# Personal — available in all your projects
+python3 install_skill.py --skill remove-ai-marks --target claude-code
+# or: make install-claude-code-skill
+
+# Project — commit .claude/skills/ to share it with the repo
+python3 install_skill.py --skill remove-ai-marks --target claude-project \
+  --project-dir /path/to/project
+# or: make install-claude-project-skill PROJECT=/path/to/project
+```
+
+Claude Code picks up personal and project skills without a restart; `/skills`
+lists what it loaded. Invoke with `/remove-ai-marks` or ask to “strip AI
+watermarks / C2PA / Claude marks / SynthID-class text.” A project install is
+also what [cloud sessions](https://code.claude.com/docs/en/cloud-environments)
+read, since they clone the repository and load its `.claude/skills/`.
+
+### Cowork (and claude.ai, cloud sessions, routines)
+
+Cowork sessions do **not** read `~/.claude/skills` on your machine — they load
+the skills enabled for your claude.ai account, synced when the session starts.
+So install there by uploading a bundle:
+
+```bash
+python3 install_skill.py --skill remove-ai-marks --target cowork
+# writes dist/remove-ai-marks.zip   (make package-cowork-skill)
+```
+
+Then, in the Claude Desktop app, open **Customize → Skills → Add** and upload
+the zip (the same skill settings on claude.ai work too). The bundle is
+reproducible and contains a single top-level `remove-ai-marks/` directory with
+`SKILL.md` at its root, which is the layout the upload expects.
+
+Service reachability matters more here than in a local install: the skill is a
+thin HTTP client, so the session must be able to reach `WATERMARKS_SERVICE_URL`.
+Cowork sessions that run locally on your machine reach a local `make serve`;
+cloud sessions and routines run remotely and need a service URL reachable from
+there (and `WATERMARKS_SERVER_API_KEY` set on it). If you want a skill with no
+service at all, upload `clean-user-facing-text` instead — it is text-only and
+ships its own scripts:
+
+```bash
+python3 install_skill.py --skill clean-user-facing-text --target cowork
+```
+
+### Grok
+
 ```bash
 # Grok Build / project-local
 mkdir -p .grok/skills
@@ -43,27 +120,20 @@ mkdir -p ~/.grok/skills
 ln -sfn "$(pwd)/skills/remove-ai-marks" ~/.grok/skills/remove-ai-marks
 ```
 
-Invoke with `/remove-ai-marks` or ask to “strip AI watermarks / C2PA / Claude marks / SynthID-class text.”
-
-### Optional Cursor text-only skill
+### Optional text-only skill
 
 [`skills/clean-user-facing-text/`](skills/clean-user-facing-text/) is a
-self-contained Cursor skill for authorized manuscripts, documentation, and web
-copy. It excludes image, C2PA, service, and external-model tooling.
-
-Install it into `~/.cursor/skills/clean-user-facing-text`:
+self-contained skill for authorized manuscripts, documentation, and web
+copy. It excludes image, C2PA, service, and external-model tooling, and runs
+its own vendored Layer A scripts instead of calling the service.
 
 ```bash
-python3 install_skill.py
+python3 install_skill.py --skill clean-user-facing-text --target claude-code
+python3 install_skill.py --skill clean-user-facing-text --target cursor
 ```
 
-On Windows, use `py install_skill.py`. The `install-skill.sh` wrapper is
-provided for macOS/Linux shells. Existing installations are preserved unless
-you pass `--force`; replacement is staged first and the previous install is
-kept as a uniquely named backup.
-
 Skill invocation is model-selected. Projects that explicitly adopt this
-workflow can also copy the optional rule:
+workflow in Cursor can also copy the optional rule:
 
 ```bash
 mkdir -p /path/to/project/.cursor/rules
@@ -881,6 +951,21 @@ make smoke                          # quick CLI smoke on fixtures
 ## Changelog
 
 ### Unreleased — detection-guided iterative Layer B rewriting
+
+- **Skills install into Claude Code and Cowork**: `install_skill.py` grew a
+  `--target` (`claude-code`, `claude-project`, `cowork`, `cursor`) and a
+  `--skill` selector covering both shipped skills, plus `--list`, `--link`
+  (symlink instead of copy), and `CLAUDE_CONFIG_DIR` support. The `cowork`
+  target builds a reproducible upload bundle (`dist/<skill>.zip`, single
+  top-level skill directory) because Cowork, cloud, and routine sessions load
+  the skills enabled for the claude.ai account rather than `~/.claude/skills`.
+  Every target validates the skill against the Agent Skills packaging rules
+  (spec-only frontmatter, name/description limits, 30 MB cap) before writing.
+  New `make` targets: `install-claude-code-skill`,
+  `install-claude-code-text-skill`, `install-claude-project-skill`,
+  `package-cowork-skill`, `package-cowork-text-skill`.
+- `clean-user-facing-text`'s description no longer names Cursor as the only
+  host, so it triggers in any Agent Skills host.
 
 - **Layer B rewriting is now iterative and evaluation-driven**: each round
   generates `--candidates` variants (default 1,
