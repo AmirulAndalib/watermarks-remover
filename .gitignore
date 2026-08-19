@@ -29,6 +29,9 @@
 !/requirements-dev.txt
 !/ruff.toml
 !/SECURITY.md
+!/research/
+!/research/**
+/research/results/
 
 # Exceptions even inside allowed trees
 .env

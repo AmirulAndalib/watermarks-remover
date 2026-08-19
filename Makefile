@@ -1,4 +1,4 @@
-.PHONY: test lint format lint-fix smoke smoke-synthid bootstrap-synthid docker-synthid-build docker-synthid-help \
+.PHONY: test research-check lint format lint-fix smoke smoke-synthid bootstrap-synthid docker-synthid-build docker-synthid-help \
 	smoke-ctrlregen bootstrap-ctrlregen docker-ctrlregen-build docker-ctrlregen-help \
 	smoke-markllm bootstrap-markllm docker-markllm-build docker-markllm-help \
 	smoke-markdiffusion bootstrap-markdiffusion docker-markdiffusion-build docker-markdiffusion-help \
@@ -11,6 +11,9 @@ PYTHON ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else e
 
 test:
 	$(PYTHON) -m pytest
+
+research-check:
+	$(PYTHON) -m pytest research/tests -q
 
 lint:
 	$(PYTHON) -m ruff check service tests

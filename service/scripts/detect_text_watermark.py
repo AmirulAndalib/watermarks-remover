@@ -97,8 +97,15 @@ def _load_algorithm(
     offline: bool = False,
     temperature: float | None = None,
     top_p: float | None = None,
+    torch_dtype: str = "auto",
 ):
-    """Import the checkout and build an ``AutoWatermark`` instance.
+    """Import the checkout and build an AutoWatermark instance.
+
+    torch_dtype maps to torch_dtype= in from_pretrained: "auto" (default,
+    fp32), "fp32", or "bf16". On CPU-only boxes bf16 can be several times
+    faster than fp32 (see the research harness), at a small precision cost;
+    same-config generation/detection stay consistent because both sides use
+    the same dtype.
 
     ``temperature``/``top_p`` (when not None) are folded into the generation
     kwargs so callers can control sampling.
@@ -110,6 +117,7 @@ def _load_algorithm(
         gen_kwargs_extra["top_p"] = top_p
     sys.path.insert(0, str(upstream))
     try:
+        import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
         from utils.transformers_config import TransformersConfig
         from watermark.auto_watermark import AutoWatermark
@@ -124,6 +132,9 @@ def _load_algorithm(
     if offline:
         os.environ.setdefault("HF_HUB_OFFLINE", "1")
     load_kwargs = {"local_files_only": True} if offline else {}
+    dtype_map = {"fp32": torch.float32, "bf16": torch.bfloat16}
+    if torch_dtype in dtype_map:
+        load_kwargs["torch_dtype"] = dtype_map[torch_dtype]
 
     tokenizer = AutoTokenizer.from_pretrained(model, **load_kwargs)
     lm = AutoModelForCausalLM.from_pretrained(model, **load_kwargs).to(device)
@@ -225,6 +236,7 @@ def _cmd_detect(args: argparse.Namespace, upstream: Path, alg: str) -> int:
             offline=args.offline,
             temperature=args.temperature,
             top_p=args.top_p,
+            torch_dtype=args.torch_dtype,
         )
         det = _detect_payload(wm, text, threshold)
     except _Unavailable as e:
@@ -276,6 +288,7 @@ def _cmd_watermark(args: argparse.Namespace, upstream: Path, alg: str) -> int:
             offline=args.offline,
             temperature=args.temperature,
             top_p=args.top_p,
+            torch_dtype=args.torch_dtype,
         )
         watermarked, unwatermarked = _generate(
             wm,
@@ -398,6 +411,7 @@ def _cmd_serve(args: argparse.Namespace, upstream: Path, alg: str) -> int:
             offline=args.offline,
             temperature=args.temperature,
             top_p=args.top_p,
+            torch_dtype=args.torch_dtype,
         )
     except _Unavailable as e:
         eprint(str(e))
@@ -529,6 +543,13 @@ def _add_common(p: argparse.ArgumentParser) -> None:
         "--device",
         default="auto",
         help="auto|cpu|cuda|mps (default: auto)",
+    )
+    p.add_argument(
+        "--torch-dtype",
+        default="auto",
+        choices=("auto", "fp32", "bf16"),
+        help="Model dtype: auto (fp32 default), fp32, or bf16 (faster on "
+        "CPU-only boxes; same-config gen/detect stay consistent)",
     )
     p.add_argument(
         "--offline",
