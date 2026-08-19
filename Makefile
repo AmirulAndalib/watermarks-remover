@@ -6,7 +6,7 @@
 	docker-core-build docker-core-help serve compose-up compose-up-heavy compose-check \
 	install-skill install-claude-code-skill install-claude-code-text-skill \
 	install-claude-project-skill package-cowork-skill package-cowork-text-skill \
-	install-cursor-text-skill clean
+	install-cursor-text-skill plugin-validate clean
 
 SCRIPTS := service/scripts
 PYTHON ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -150,6 +150,12 @@ package-cowork-text-skill:
 
 install-cursor-text-skill:
 	$(PYTHON) install_skill.py --skill clean-user-facing-text --target cursor
+
+# Claude Code plugin + single-plugin marketplace manifests (.claude-plugin/).
+# Needs the claude CLI; tests/test_plugin_manifest.py covers the same files
+# structurally so CI stays CLI-free.
+plugin-validate:
+	claude plugin validate . --strict
 
 clean:
 	rm -rf dist

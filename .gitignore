@@ -2,6 +2,8 @@
 # Local test artifacts, secrets (.env), and tooling stay out without a rule
 # for each one. Tracked files are unaffected.
 /*
+!/.claude-plugin/
+!/.claude-plugin/**
 !/.github/
 !/.github/**
 !/benchmarks/

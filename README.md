@@ -33,7 +33,10 @@ Service path: [`service/`](service/)
 
 The skill ships **no code** — it calls the service over HTTP. Install the skill (markdown only) and start the service, then set `WATERMARKS_SERVICE_URL` if it is not `http://127.0.0.1:8765`.
 
-One installer covers every supported host (Python 3.10+ stdlib, no dependencies):
+In Claude Code, the fastest route is the bundled
+[plugin marketplace](#claude-code-plugin-marketplace) — no clone, and it updates
+in place. Everywhere else, one installer covers every supported host
+(Python 3.10+ stdlib, no dependencies):
 
 ```bash
 python3 install_skill.py --skill remove-ai-marks --target claude-code
@@ -60,6 +63,28 @@ and the Skills API enforce: spec-only frontmatter (`name`, `description`,
 `license`, `compatibility`, `metadata`, `allowed-tools`), a lowercase hyphenated
 `name` of at most 64 characters matching the directory, a non-empty
 `description` of at most 1024 characters, and a payload under 30 MB.
+
+### Claude Code plugin (marketplace)
+
+The repository is also a Claude Code **plugin** and a single-plugin
+**marketplace** (`.claude-plugin/`), so both skills install and update in two
+commands, no clone or script required:
+
+```
+/plugin marketplace add guillaumemeyer/watermarks-remover
+/plugin install watermarks-remover@watermarks-remover
+```
+
+The skills then load namespaced: `/watermarks-remover:remove-ai-marks` and
+`/watermarks-remover:clean-user-facing-text` (the bare `/remove-ai-marks` also
+works when nothing else claims the name). `/plugin marketplace update
+watermarks-remover` pulls later versions. The same works from the CLI with
+`claude plugin marketplace add …` / `claude plugin install …`, and from a local
+checkout by passing a path instead of `owner/repo`.
+
+Maintainers: `make plugin-validate` runs `claude plugin validate . --strict`
+against both manifests; `tests/test_plugin_manifest.py` covers the same files
+without needing the CLI.
 
 ### Claude Code
 
@@ -966,6 +991,12 @@ make smoke                          # quick CLI smoke on fixtures
   `package-cowork-skill`, `package-cowork-text-skill`.
 - `clean-user-facing-text`'s description no longer names Cursor as the only
   host, so it triggers in any Agent Skills host.
+- **The repository is now a Claude Code plugin and a single-plugin
+  marketplace** (`.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json`),
+  so both skills install with `/plugin marketplace add guillaumemeyer/watermarks-remover`
+  then `/plugin install watermarks-remover@watermarks-remover`, and update in place.
+  `make plugin-validate` runs `claude plugin validate . --strict`;
+  `tests/test_plugin_manifest.py` checks the manifests without the CLI.
 
 - **Layer B rewriting is now iterative and evaluation-driven**: each round
   generates `--candidates` variants (default 1,
