@@ -87,7 +87,7 @@ def test_health(conn):
 def test_capabilities(conn):
     status, body = _get(conn, "/capabilities")
     assert status == 200
-    assert set(body["tools"]) == {"c2patool", "exiftool", "qpdf"}
+    assert set(body["tools"]) == {"c2patool", "exiftool", "qpdf", "ghostscript"}
     assert "pixel_backends" in body
     assert "scorers" in body
     assert "harnesses" in body

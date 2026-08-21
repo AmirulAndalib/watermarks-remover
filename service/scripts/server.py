@@ -90,7 +90,24 @@ ALLOWED_CLEAN_OPTIONS = {
     "strip_all_metadata": bool,
     "detect_before": bool,
     "detect_after": bool,
+    "deep_images": str,
 }
+
+
+def _ghostscript_usable() -> bool:
+    """True when a Ghostscript binary is present and runnable."""
+    from container_meta import which_ghostscript
+
+    gs = which_ghostscript()
+    if not gs:
+        return False
+    try:
+        r = subprocess.run(
+            [gs, "--version"], capture_output=True, text=True, timeout=10, check=False
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
 
 
 def _json_ok(payload: dict[str, Any]) -> bytes:
@@ -138,6 +155,7 @@ def capabilities() -> dict[str, Any]:
             "c2patool": _tool_usable("c2patool"),
             "exiftool": _tool_usable("exiftool"),
             "qpdf": _tool_usable("qpdf"),
+            "ghostscript": _ghostscript_usable(),
         },
         "pixel_backends": {
             "ctrlregen": bool(os.environ.get("NOAI_WATERMARK_DIR")),
@@ -227,7 +245,8 @@ _OPENAPI_PATHS: dict[str, dict[str, Any]] = {
                         "tools": _schema(
                             type="object",
                             properties={
-                                k: _schema(type="boolean") for k in ("c2patool", "exiftool", "qpdf")
+                                k: _schema(type="boolean")
+                                for k in ("c2patool", "exiftool", "qpdf", "ghostscript")
                             },
                         ),
                         "pixel_backends": _schema(
@@ -813,6 +832,7 @@ def _clean_payload(data: bytes, name: str, options: dict[str, Any]) -> dict[str,
                 dest,
                 fmt=container_fmt,
                 also_layer_a_text=bool(options.get("also_layer_a_text", True)),
+                deep_images=str(options.get("deep_images", "auto")),
             )
             cleaned_bytes = dest.read_bytes()
             report = {"kind": "container", **result}
