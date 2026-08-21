@@ -263,7 +263,9 @@ def test_wav_list_info_ai_hint_detected_and_stripped(tmp_path):
 
 def test_wav_c2pa_chunk_detected_and_stripped(tmp_path):
     manifest = b"C2PA manifest store"
-    data = _wav(_wav_fmt_chunk(), _wav_data_chunk(8), _riff_chunk(b"C2PA", manifest))
+    fmt_chunk = _wav_fmt_chunk()
+    data_chunk = _wav_data_chunk(8)
+    data = _wav(fmt_chunk, _riff_chunk(b"C2PA", manifest), data_chunk)
     src = tmp_path / "voice.wav"
     src.write_bytes(data)
 
@@ -274,6 +276,8 @@ def test_wav_c2pa_chunk_detected_and_stripped(tmp_path):
     dest = tmp_path / "voice.cleaned.wav"
     result = clean_av(src, dest, strip_all_metadata=False)
     cleaned = dest.read_bytes()
+    assert result["actions"] == ["drop WAV C2PA chunk"]
+    assert cleaned == _wav(fmt_chunk, data_chunk)
     assert b"C2PA" not in cleaned
     assert manifest not in cleaned
     assert result["still_has_c2pa"] is False
