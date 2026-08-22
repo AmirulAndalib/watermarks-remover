@@ -81,6 +81,7 @@ def test_lightweight_skill_has_no_template_placeholders():
 
     assert "TODO" not in skill_text
     assert (SKILL / "references" / "watermark-notes.md").is_file()
+    assert (SKILL / "references" / "writing-in-your-voice.md").is_file()
 
 
 def _run_installer(home: Path, *args: str, check: bool = True):
