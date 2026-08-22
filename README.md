@@ -857,10 +857,14 @@ too.
 So `clean_pdf` adds a third pass, `deep_images`, driven by Ghostscript's
 `pdfwrite`. It runs in two rungs and stops as soon as the file is clean:
 
-1. **Lossless.** `pdfwrite` with JPEG pass-through rebuilds the document from
-   the object graph while copying the compressed image data byte-for-byte —
-   verified by hashing the streams before and after. This clears everything the
-   PDF wrapped around the image.
+1. **Lossless.** `pdfwrite` with pass-through rebuilds the document from the
+   object graph while copying the compressed image data byte-for-byte — verified
+   by hashing the streams before and after. This clears everything the PDF
+   wrapped around the image. Pass-through covers the codecs Ghostscript supports
+   for it, JPEG (DCTDecode) and JPEG2000 (JPXDecode); Flate, CCITT and LZW
+   images are decoded and re-encoded, which is lossless in practice for those
+   codecs but not byte-identical. `never` is the option for a document whose
+   streams must survive untouched.
 2. **Re-encode, only on evidence.** Anything living in the JPEG's own APPn
    segments — EXIF in APP1, a C2PA manifest in APP11, Photoshop resources in
    APP13 — travels with the bytes it is attached to, so pass-through preserves

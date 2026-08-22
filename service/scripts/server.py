@@ -94,8 +94,13 @@ ALLOWED_CLEAN_OPTIONS = {
 }
 
 
+@cache
 def _ghostscript_usable() -> bool:
-    """True when a Ghostscript binary is present and runnable."""
+    """True when a Ghostscript binary is present and runnable.
+
+    Cached and guarded like _tool_usable: /capabilities is polled, and probing
+    spawns a process every time otherwise.
+    """
     from container_meta import which_ghostscript
 
     gs = which_ghostscript()
@@ -103,7 +108,12 @@ def _ghostscript_usable() -> bool:
         return False
     try:
         r = subprocess.run(
-            [gs, "--version"], capture_output=True, text=True, timeout=10, check=False
+            [gs, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+            preexec_fn=subprocess_preexec_fn,
         )
         return r.returncode == 0
     except Exception:

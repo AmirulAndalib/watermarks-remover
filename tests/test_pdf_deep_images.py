@@ -28,22 +28,12 @@ needs_exiftool = pytest.mark.skipif(not which("exiftool"), reason="exiftool not 
 needs_ghostscript = pytest.mark.skipif(not which_ghostscript(), reason="ghostscript not installed")
 
 
-def _minimal_pdf(info: bytes = b"") -> bytes:
-    """A one-page PDF, optionally carrying an Info dictionary."""
-    content = b"BT /F1 12 Tf 72 720 Td (deep image test) Tj ET"
-    objs = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-        b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
-        b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    ]
-    trailer_info = b""
-    if info:
-        objs.append(info)
-        trailer_info = b" /Info %d 0 R" % len(objs)
+def _assemble_pdf(objs: list[bytes], trailer_extra: bytes = b"") -> bytes:
+    """Wrap numbered objects in a header, xref table and trailer.
 
+    The xref offsets are byte-exact, so this lives in one place: a correction
+    applied to only one copy would leave the other quietly malformed.
+    """
     out = bytearray(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
     offsets = []
     for i, body in enumerate(objs, start=1):
@@ -55,10 +45,28 @@ def _minimal_pdf(info: bytes = b"") -> bytes:
         out += b"%010d 00000 n \n" % off
     out += b"trailer\n<< /Size %d /Root 1 0 R%s >>\nstartxref\n%d\n%%%%EOF\n" % (
         len(objs) + 1,
-        trailer_info,
+        trailer_extra,
         xref,
     )
     return bytes(out)
+
+
+def _minimal_pdf(info: bytes = b"") -> bytes:
+    """A one-page PDF, optionally carrying an Info dictionary."""
+    content = b"BT /F1 12 Tf 72 720 Td (deep image test) Tj ET"
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    trailer_extra = b""
+    if info:
+        objs.append(info)
+        trailer_extra = b" /Info %d 0 R" % len(objs)
+    return _assemble_pdf(objs, trailer_extra)
 
 
 def _jpeg_dimensions(data: bytes) -> tuple[int, int]:
@@ -93,20 +101,7 @@ def _pdf_with_image(jpeg: bytes) -> bytes:
         + jpeg
         + b"\nendstream",
     ]
-    out = bytearray(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
-    offsets = []
-    for i, body in enumerate(objs, start=1):
-        offsets.append(len(out))
-        out += b"%d 0 obj\n" % i + body + b"\nendobj\n"
-    xref = len(out)
-    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
-    for off in offsets:
-        out += b"%010d 00000 n \n" % off
-    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
-        len(objs) + 1,
-        xref,
-    )
-    return bytes(out)
+    return _assemble_pdf(objs)
 
 
 # A C2PA-signed image carries the manifest in APP11 (JUMBF) and, alongside it,
@@ -224,7 +219,7 @@ def test_auto_escalates_when_the_lossless_pass_leaves_the_marker(tmp_path, monke
 
     calls: list[bool] = []
 
-    def _stub(dest, actions, *, reencode=False):
+    def _stub(dest, actions, *, reencode=False, deadline=None):
         calls.append(reencode)
         actions.append(f"stub deep pass (reencode={reencode})")
         return True
@@ -247,7 +242,7 @@ def test_lossless_refuses_to_escalate(tmp_path, monkeypatch):
 
     calls: list[bool] = []
 
-    def _stub(dest, actions, *, reencode=False):
+    def _stub(dest, actions, *, reencode=False, deadline=None):
         calls.append(reencode)
         return True
 
@@ -329,7 +324,7 @@ def test_always_escalates_when_the_lossless_pass_keeps_exif(tmp_path, monkeypatc
 
     calls: list[bool] = []
 
-    def _stub(dest, actions, *, reencode=False):
+    def _stub(dest, actions, *, reencode=False, deadline=None):
         calls.append(reencode)
         return True
 
@@ -341,3 +336,35 @@ def test_always_escalates_when_the_lossless_pass_keeps_exif(tmp_path, monkeypatc
 
     assert calls == [False, True], "lossless first, then the re-encoding escalation"
     assert meta["images_reencoded"] is True
+
+
+@needs_exiftool
+def test_no_escalation_when_the_deep_pass_cannot_run(tmp_path, monkeypatch):
+    """A missing Ghostscript must not be mistaken for a surviving marker.
+
+    Rung 1 returning False means nothing was attempted, so rung 2 cannot help
+    either -- asking would only spend an inspect_pdf and append the same
+    "install ghostscript" warning a second time.
+    """
+    import container_meta
+
+    calls: list[bool] = []
+
+    def _unavailable(dest, actions, *, reencode=False, deadline=None):
+        calls.append(reencode)
+        actions.append(
+            "warning: metadata inside embedded images left in place; "
+            "install ghostscript for the deep image pass"
+        )
+        return False
+
+    monkeypatch.setattr(container_meta, "_pdf_deep_image_clean", _unavailable)
+
+    src = tmp_path / "in.pdf"
+    src.write_bytes(_pdf_with_image(_c2pa_like_jpeg()))
+    actions, meta = clean_pdf(src, tmp_path / "out.pdf", deep_images="always")
+
+    assert calls == [False], "rung 2 must not be attempted when rung 1 never ran"
+    assert meta["images_reencoded"] is False
+    assert not any("escalating" in a for a in actions)
+    assert sum("install ghostscript" in a for a in actions) == 1

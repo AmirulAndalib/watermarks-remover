@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "service" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+import container_meta
 import server
 
 
@@ -194,7 +195,9 @@ def test_unknown_deep_images_mode_rejected(conn):
 
 
 def test_known_deep_images_modes_accepted(conn):
-    for mode in ("auto", "always", "lossless", "never"):
+    # Driven from the frozenset itself: a mode added there without a test here
+    # would otherwise look covered.
+    for mode in sorted(container_meta.DEEP_IMAGE_MODES):
         status, _body = _post(
             conn,
             "/clean",

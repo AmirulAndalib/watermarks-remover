@@ -6,10 +6,12 @@ Stdlib-first; PDF prefers optional exiftool/c2patool when present.
 
 import base64
 import io
+import os
 import posixpath
 import re
 import subprocess
 import tempfile
+import time
 import urllib.parse
 import zipfile
 import zlib
@@ -1830,7 +1832,9 @@ def inspect_pdf(path: Path, data: bytes) -> tuple[bool, bool, list[str], dict]:
     return has_c2pa, has_ai or has_c2pa, findings, {"tools": tools}
 
 
-def _pdf_structural_rewrite(dest: Path, actions: list[str]) -> bool:
+def _pdf_structural_rewrite(
+    dest: Path, actions: list[str], deadline: "_Deadline | None" = None
+) -> bool:
     """Rebuild a PDF so unreferenced objects are dropped.
 
     exiftool's PDF edits are incremental, so freed metadata objects survive in
@@ -1845,13 +1849,20 @@ def _pdf_structural_rewrite(dest: Path, actions: list[str]) -> bool:
         )
         return False
 
+    if deadline is not None and deadline.spent():
+        actions.append(
+            "qpdf structural rewrite skipped: clean budget exhausted; "
+            "metadata bytes may remain recoverable"
+        )
+        return False
+
     tmp = dest.with_name(dest.name + ".qpdf-tmp")
     try:
         r = subprocess.run(
             [qpdf, "--linearize", "--", safe_arg(str(dest)), safe_arg(str(tmp))],
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=(_QPDF_TIMEOUT if deadline is None else deadline.timeout(_QPDF_TIMEOUT)),
             check=False,
             preexec_fn=subprocess_preexec_fn,
         )
@@ -1921,6 +1932,33 @@ def embedded_image_metadata_present(data: bytes) -> bool:
 
 DEEP_IMAGE_MODES = frozenset({"auto", "always", "lossless", "never"})
 
+# One PDF can run two Ghostscript passes and three exiftool/qpdf pairs. Left to
+# their own timeouts that is about nineteen minutes of wall clock, on a request
+# thread, and /clean/batch works through its files one after another. Budget the
+# whole clean instead and hand each child whatever is left of it.
+PDF_CLEAN_BUDGET_SECONDS = float(os.environ.get("WATERMARKS_PDF_CLEAN_BUDGET", "420"))
+_EXIFTOOL_TIMEOUT = 60.0
+_QPDF_TIMEOUT = 120.0
+_GHOSTSCRIPT_TIMEOUT = 300.0
+
+
+class _Deadline:
+    """What is left of a shared budget, clamped to each tool's own ceiling."""
+
+    def __init__(self, budget: float) -> None:
+        self._end = time.monotonic() + budget
+
+    def remaining(self) -> float:
+        return max(0.0, self._end - time.monotonic())
+
+    def spent(self) -> bool:
+        return self.remaining() <= 0.0
+
+    def timeout(self, cap: float) -> float:
+        # Never hand subprocess 0: it would raise instead of running.
+        return max(1.0, min(cap, self.remaining()))
+
+
 _GHOSTSCRIPT_NAMES = ("gs", "gswin64c", "gswin32c")
 
 
@@ -1933,14 +1971,21 @@ def which_ghostscript() -> str | None:
     return None
 
 
-def _exiftool_strip(exiftool: str, dest: Path, actions: list[str]) -> None:
+def _exiftool_strip(
+    exiftool: str, dest: Path, actions: list[str], deadline: "_Deadline | None" = None
+) -> None:
     """Run ``exiftool -all=`` over *dest* in place, recording the outcome."""
+    if deadline is not None and deadline.spent():
+        actions.append("exiftool skipped: clean budget exhausted")
+        return
     try:
         r = subprocess.run(
             [exiftool, "-all=", "-overwrite_original", safe_arg(str(dest))],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=(
+                _EXIFTOOL_TIMEOUT if deadline is None else deadline.timeout(_EXIFTOOL_TIMEOUT)
+            ),
             check=False,
             preexec_fn=subprocess_preexec_fn,
         )
@@ -1949,7 +1994,13 @@ def _exiftool_strip(exiftool: str, dest: Path, actions: list[str]) -> None:
         actions.append(f"exiftool failed: {e}")
 
 
-def _pdf_deep_image_clean(dest: Path, actions: list[str], *, reencode: bool = False) -> bool:
+def _pdf_deep_image_clean(
+    dest: Path,
+    actions: list[str],
+    *,
+    reencode: bool = False,
+    deadline: "_Deadline | None" = None,
+) -> bool:
     """Drop metadata carried *inside* embedded images by re-distilling.
 
     ``exiftool -all=`` and the qpdf rewrite both stop at document level. EXIF,
@@ -1965,6 +2016,10 @@ def _pdf_deep_image_clean(dest: Path, actions: list[str], *, reencode: bool = Fa
     recompressed and those segments are dropped -- effective, but lossy, so
     callers escalate to it only when a marker provably survived the cheap pass.
     """
+    if deadline is not None and deadline.spent():
+        actions.append("deep image pass skipped: clean budget exhausted")
+        return False
+
     gs = which_ghostscript()
     if not gs:
         actions.append(
@@ -1979,10 +2034,18 @@ def _pdf_deep_image_clean(dest: Path, actions: list[str], *, reencode: bool = Fa
     # hand the validated bytes over through the safe writer.
     with tempfile.TemporaryDirectory(prefix="wr-gs-") as staging:
         tmp = Path(staging) / "deep-image.pdf"
-        return _run_ghostscript(gs, dest, tmp, actions, reencode=reencode)
+        return _run_ghostscript(gs, dest, tmp, actions, reencode=reencode, deadline=deadline)
 
 
-def _run_ghostscript(gs: str, dest: Path, tmp: Path, actions: list[str], *, reencode: bool) -> bool:
+def _run_ghostscript(
+    gs: str,
+    dest: Path,
+    tmp: Path,
+    actions: list[str],
+    *,
+    reencode: bool,
+    deadline: "_Deadline | None" = None,
+) -> bool:
     try:
         r = subprocess.run(
             [
@@ -1995,6 +2058,10 @@ def _run_ghostscript(gs: str, dest: Path, tmp: Path, actions: list[str], *, reen
                 "-dPDFSETTINGS=/prepress",
                 "-dAutoRotatePages=/None",
                 f"-dPassThroughJPEGImages={'false' if reencode else 'true'}",
+                # JPEG2000 streams get the same treatment; other codecs (Flate,
+                # CCITT) are re-encoded by pdfwrite and pass-through does not
+                # apply to them, which the docs say plainly.
+                f"-dPassThroughJPXImages={'false' if reencode else 'true'}",
                 "-dDownsampleColorImages=false",
                 "-dDownsampleGrayImages=false",
                 "-dDownsampleMonoImages=false",
@@ -2003,7 +2070,9 @@ def _run_ghostscript(gs: str, dest: Path, tmp: Path, actions: list[str], *, reen
             ],
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=(
+                _GHOSTSCRIPT_TIMEOUT if deadline is None else deadline.timeout(_GHOSTSCRIPT_TIMEOUT)
+            ),
             check=False,
             preexec_fn=subprocess_preexec_fn,
         )
@@ -2053,17 +2122,19 @@ def clean_pdf(path: Path, dest: Path, *, deep_images: str = "auto") -> tuple[lis
             f"deep_images must be one of {sorted(DEEP_IMAGE_MODES)}, got {deep_images!r}"
         )
 
+    deadline = _Deadline(PDF_CLEAN_BUDGET_SECONDS)
+
     exiftool = which("exiftool")
     if exiftool:
         safe_write_bytes(dest, data)
-        _exiftool_strip(exiftool, dest, actions)
+        _exiftool_strip(exiftool, dest, actions, deadline)
         # exiftool writes PDFs *incrementally*: it appends a
         # %BeginExifToolUpdate block that frees the Info object and drops
         # /Info from the trailer, but the original metadata bytes stay in the
         # file verbatim and are trivially recoverable (exiftool itself can
         # revert them with -PDF-update:all=). A structural rewrite is what
         # actually drops the now-unreferenced objects.
-        rewritten = _pdf_structural_rewrite(dest, actions)
+        rewritten = _pdf_structural_rewrite(dest, actions, deadline)
 
         # Document-level strip is done. Metadata inside embedded images is out
         # of reach from here, so decide whether to re-distill.
@@ -2078,8 +2149,8 @@ def clean_pdf(path: Path, dest: Path, *, deep_images: str = "auto") -> tuple[lis
             # incrementally, so re-serialize once more after removing it.
             nonlocal rewritten
             if ran and exiftool:
-                _exiftool_strip(exiftool, dest, actions)
-                rewritten = _pdf_structural_rewrite(dest, actions) or rewritten
+                _exiftool_strip(exiftool, dest, actions, deadline)
+                rewritten = _pdf_structural_rewrite(dest, actions, deadline) or rewritten
 
         deep_ran = False
         reencoded = False
@@ -2091,22 +2162,33 @@ def clean_pdf(path: Path, dest: Path, *, deep_images: str = "auto") -> tuple[lis
                     "residual AI/C2PA markers after document-level strip "
                     "(embedded image suspected); running deep image pass"
                 )
-            deep_ran = _pdf_deep_image_clean(dest, actions)
+            deep_ran = _pdf_deep_image_clean(dest, actions, deadline=deadline)
             _settle(deep_ran)
             # Anything inside the JPEG itself rides along with a passed-through
             # stream. Recompressing is the only way left to shift it, so spend
             # the quality only when something demonstrably survived: AI/C2PA
             # markers always count, and under `always` -- which promises to
             # clear camera and editor traces too -- so does ordinary EXIF.
-            survived = _markers_left() or (
-                mode == "always" and embedded_image_metadata_present(dest.read_bytes())
+            #
+            # Two things make asking pointless. In `lossless` the answer is
+            # discarded, and _markers_left() runs a full inspect_pdf that spawns
+            # tools of its own. And if rung 1 never ran -- no Ghostscript, or the
+            # budget is gone -- rung 2 cannot run either, and asking would only
+            # append the same warning twice.
+            survived = (
+                mode != "lossless"
+                and deep_ran
+                and (
+                    _markers_left()
+                    or (mode == "always" and embedded_image_metadata_present(dest.read_bytes()))
+                )
             )
-            if mode != "lossless" and survived:
+            if survived:
                 actions.append(
                     "metadata survived the lossless pass (it is inside the image "
                     "stream); escalating to a re-encoding pass"
                 )
-                reencoded = _pdf_deep_image_clean(dest, actions, reencode=True)
+                reencoded = _pdf_deep_image_clean(dest, actions, reencode=True, deadline=deadline)
                 deep_ran = deep_ran or reencoded
                 _settle(reencoded)
         else:

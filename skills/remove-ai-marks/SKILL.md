@@ -316,10 +316,16 @@ Always state:
   `deep_images: "auto"` chases it only when a marker survived the document-level
   strip; `"always"` also clears non-AI camera and editor EXIF, at the cost of a
   re-distill. Clearing anything held in the JPEG's own APP segments means
-  recompressing the image, so `"lossless"` stops before that: it never touches
-  image data, and whatever survives shows up in the usual `still_has_c2pa` /
-  `still_has_ai_metadata` / `post_findings` fields of the report rather than in a
-  field of its own. An unrecognised value is an error, not a silent fallback.
+  recompressing the image, so `"lossless"` stops before that and whatever
+  survives shows up in the usual `still_has_c2pa` / `still_has_ai_metadata` /
+  `post_findings` fields of the report rather than in a field of its own. An
+  unrecognised value is an error, not a silent fallback.
+- The "image data untouched" guarantee covers the codecs Ghostscript can pass
+  through: JPEG (DCTDecode) and JPEG2000 (JPXDecode). Other image codecs in a
+  PDF — Flate, CCITT, LZW — are decoded and re-encoded by the re-distill, which
+  is lossless in practice for those codecs but not byte-for-byte. Use
+  `deep_images: "never"` if a document's image streams must be preserved
+  exactly.
 - Pixel-domain **image** watermarks can be removed optionally via the external CtrlRegen backend (`remove_pixel: ctrlregen`) or MarkDiffusion's DiffusionPurification (`remove_pixel: diffusion`); both are heavy, drift the image, and need the backend present (`/capabilities`). Audio/video watermarks remain out of scope.
 - The reverse-SynthID scorer is external, best-effort, and under a non-commercial Research License; not an official Google detector. Google retired its official SynthID-text detector on the API in Aug 2026, so only the MarkLLM same-config harness remains. Claude's detection API has been announced but is not public yet — the `claude-text` detector reports unavailable until it ships.
 - **C2PA soft binding** (content watermark that re-links to a remote manifest after metadata strip) is out of scope — stripping hard-bound C2PA does not clear it.
