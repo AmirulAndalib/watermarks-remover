@@ -43,17 +43,38 @@ def _spawn_sites(source: str) -> list[ast.Call]:
     return sites
 
 
+def _mentions_the_shared_flag(node: ast.expr) -> bool:
+    """True when the expression is, or is built from, subprocess_creationflags.
+
+    Checking only that `creationflags` is present would accept a literal 0,
+    which is the value that leaves the console window in place on Windows.
+    """
+    return any(
+        isinstance(child, ast.Name) and child.id == "subprocess_creationflags"
+        for child in ast.walk(node)
+    )
+
+
 def test_every_spawn_site_suppresses_the_console():
     missing = []
     counted = 0
     for path in sorted(SCRIPTS.glob("*.py")):
         for call in _spawn_sites(path.read_text(encoding="utf-8")):
             counted += 1
-            if not any(kw.arg == "creationflags" for kw in call.keywords):
+            flag = next((kw for kw in call.keywords if kw.arg == "creationflags"), None)
+            if flag is None or not _mentions_the_shared_flag(flag.value):
                 missing.append(f"{path.name}:{call.lineno}")
 
     assert counted, "no subprocess spawn sites found -- has the layout changed?"
-    assert not missing, "spawn sites without creationflags: " + ", ".join(missing)
+    assert not missing, "spawn sites not passing subprocess_creationflags: " + ", ".join(missing)
+
+
+def test_the_static_check_rejects_a_hardcoded_zero():
+    """The guard must not be satisfied by a value that keeps the window."""
+    source = "import subprocess\nsubprocess.run(['x'], creationflags=0)\n"
+    call = _spawn_sites(source)[0]
+    flag = next(kw for kw in call.keywords if kw.arg == "creationflags")
+    assert _mentions_the_shared_flag(flag.value) is False
 
 
 def test_flag_value_matches_the_platform():
