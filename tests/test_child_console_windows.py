@@ -44,19 +44,17 @@ def _spawn_sites(source: str) -> list[ast.Call]:
 
 
 def _uses_the_shared_flag(node: ast.expr) -> bool:
-    """True for `subprocess_creationflags`, alone or inside a `|` chain.
+    """True only for a bare `subprocess_creationflags`.
 
-    Mentioning the name is not enough: `subprocess_creationflags + 1` and
-    `wrapper(subprocess_creationflags)` both evaluate to something other than the
-    shared value, and either could leave the console window in place while
-    reading as compliant. Only the name itself and bitwise-or combinations of it
-    are accepted, since that is the one composition that keeps the flag set.
+    Combinations are deliberately refused rather than merged in. On Windows
+    CREATE_NEW_CONSOLE overrides CREATE_NO_WINDOW, so a `|` chain can carry the
+    shared flag and still open a window; and constants like
+    CREATE_NEW_PROCESS_GROUP do not exist off Windows, so a chain that reads
+    fine here raises AttributeError there. A site that genuinely needs more
+    flags is a decision worth making in the open, which means updating this
+    guard rather than slipping past it.
     """
-    if isinstance(node, ast.Name):
-        return node.id == "subprocess_creationflags"
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
-        return _uses_the_shared_flag(node.left) or _uses_the_shared_flag(node.right)
-    return False
+    return isinstance(node, ast.Name) and node.id == "subprocess_creationflags"
 
 
 def test_every_spawn_site_suppresses_the_console():
@@ -87,6 +85,11 @@ def _flag_expression(expression: str) -> ast.expr:
         "subprocess_creationflags + 1",
         "wrapper(subprocess_creationflags)",
         "subprocess_creationflags if nt else 0",
+        # CREATE_NEW_CONSOLE wins over CREATE_NO_WINDOW: the flag is present and
+        # the window opens anyway.
+        "subprocess_creationflags | subprocess.CREATE_NEW_CONSOLE",
+        # Fine on Windows, AttributeError on POSIX.
+        "subprocess_creationflags | subprocess.CREATE_NEW_PROCESS_GROUP",
     ],
 )
 def test_the_static_check_rejects_what_is_not_the_shared_flag(expression):
@@ -94,17 +97,9 @@ def test_the_static_check_rejects_what_is_not_the_shared_flag(expression):
     assert _uses_the_shared_flag(_flag_expression(expression)) is False
 
 
-@pytest.mark.parametrize(
-    "expression",
-    [
-        "subprocess_creationflags",
-        "subprocess_creationflags | subprocess.CREATE_NEW_PROCESS_GROUP",
-        "subprocess.CREATE_NEW_PROCESS_GROUP | subprocess_creationflags",
-    ],
-)
-def test_the_static_check_accepts_the_shared_flag(expression):
-    """A spawn site may add flags of its own, as long as this one survives."""
-    assert _uses_the_shared_flag(_flag_expression(expression)) is True
+def test_the_static_check_accepts_the_shared_flag():
+    """The one accepted form, which is what every spawn site actually writes."""
+    assert _uses_the_shared_flag(_flag_expression("subprocess_creationflags")) is True
 
 
 def test_flag_value_matches_the_platform():
