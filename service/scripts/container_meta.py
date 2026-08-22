@@ -2125,6 +2125,8 @@ def clean_pdf(path: Path, dest: Path, *, deep_images: str = "auto") -> tuple[lis
     deadline = _Deadline(PDF_CLEAN_BUDGET_SECONDS)
 
     exiftool = which("exiftool")
+    rewritten = False
+
     if exiftool:
         safe_write_bytes(dest, data)
         _exiftool_strip(exiftool, dest, actions, deadline)
@@ -2135,96 +2137,112 @@ def clean_pdf(path: Path, dest: Path, *, deep_images: str = "auto") -> tuple[lis
         # revert them with -PDF-update:all=). A structural rewrite is what
         # actually drops the now-unreferenced objects.
         rewritten = _pdf_structural_rewrite(dest, actions, deadline)
-
-        # Document-level strip is done. Metadata inside embedded images is out
-        # of reach from here, so decide whether to re-distill.
-        mode = deep_images
-
-        def _markers_left() -> bool:
-            res_c2pa, res_ai, _f, _d = inspect_pdf(dest, dest.read_bytes())
-            return bool(res_c2pa or res_ai)
-
-        def _settle(ran: bool) -> None:
-            # pdfwrite stamps its own /Producer, and exiftool edits PDFs
-            # incrementally, so re-serialize once more after removing it.
-            nonlocal rewritten
-            if ran and exiftool:
-                _exiftool_strip(exiftool, dest, actions, deadline)
-                rewritten = _pdf_structural_rewrite(dest, actions, deadline) or rewritten
-
-        deep_ran = False
-        reencoded = False
-        if mode == "never":
-            pass
-        elif mode in ("always", "lossless") or _markers_left():
-            if mode == "auto":
-                actions.append(
-                    "residual AI/C2PA markers after document-level strip "
-                    "(embedded image suspected); running deep image pass"
-                )
-            deep_ran = _pdf_deep_image_clean(dest, actions, deadline=deadline)
-            _settle(deep_ran)
-            # Anything inside the JPEG itself rides along with a passed-through
-            # stream. Recompressing is the only way left to shift it, so spend
-            # the quality only when something demonstrably survived: AI/C2PA
-            # markers always count, and under `always` -- which promises to
-            # clear camera and editor traces too -- so does ordinary EXIF.
-            #
-            # Two things make asking pointless. In `lossless` the answer is
-            # discarded, and _markers_left() runs a full inspect_pdf that spawns
-            # tools of its own. And if rung 1 never ran -- no Ghostscript, or the
-            # budget is gone -- rung 2 cannot run either, and asking would only
-            # append the same warning twice.
-            survived = (
-                mode != "lossless"
-                and deep_ran
-                and (
-                    _markers_left()
-                    or (mode == "always" and embedded_image_metadata_present(dest.read_bytes()))
-                )
-            )
-            if survived:
-                actions.append(
-                    "metadata survived the lossless pass (it is inside the image "
-                    "stream); escalating to a re-encoding pass"
-                )
-                reencoded = _pdf_deep_image_clean(dest, actions, reencode=True, deadline=deadline)
-                deep_ran = deep_ran or reencoded
-                _settle(reencoded)
+        document_mode = "exiftool"
+    else:
+        # Degraded document-level strip: obvious XMP packets and nothing else.
+        # The deep-image ladder below still runs -- Ghostscript reaches metadata
+        # inside image XObjects on its own, and gating that on exiftool left the
+        # only tool that can do that job unused.
+        stripped, n = _drop_tag_blocks(data, _XMP_PACKET_OPEN_RE, _XMP_PACKET_CLOSE_RE)
+        safe_write_bytes(dest, stripped if n else data)
+        if n:
+            actions.append(f"stripped XMP xpacket x{n} (degraded; may leave offsets broken)")
+            actions.append("warning: pure-stdlib PDF strip is best-effort; prefer exiftool")
+            document_mode = "stdlib-xmp"
         else:
             actions.append(
-                "deep image pass not needed for AI/C2PA markers; pass "
-                'deep_images="always" to also clear non-AI EXIF inside images'
+                "no PDF cleaner available (install exiftool for reliable metadata "
+                "strip); document-level metadata left as-is"
+            )
+            document_mode = "copy"
+
+    # Document-level strip is done. Metadata inside embedded images is out
+    # of reach from here, so decide whether to re-distill.
+    mode = deep_images
+
+    def _markers_left() -> bool:
+        res_c2pa, res_ai, _f, _d = inspect_pdf(dest, dest.read_bytes())
+        return bool(res_c2pa or res_ai)
+
+    def _settle(ran: bool) -> None:
+        # pdfwrite stamps its own /Producer, and exiftool edits PDFs
+        # incrementally, so re-serialize once more after removing it.
+        nonlocal rewritten
+        if not ran:
+            return
+        if exiftool:
+            _exiftool_strip(exiftool, dest, actions, deadline)
+            rewritten = _pdf_structural_rewrite(dest, actions, deadline) or rewritten
+        else:
+            # Trading a vendor mark for a Ghostscript one is still worth it,
+            # but the caller should not have to discover the swap.
+            actions.append(
+                "warning: the re-distill stamped its own /Producer and there "
+                "is no exiftool to remove it"
             )
 
-        c2patool = which("c2patool")
-        # c2patool does not always strip; leave note
-        if c2patool:
-            actions.append("c2patool available for inspect; strip via exiftool/re-export")
-        return actions, {
-            "mode": "exiftool",
-            "structural_rewrite": rewritten,
-            "deep_images": mode,
-            "deep_image_pass": deep_ran,
-            "images_reencoded": reencoded,
-        }
+    deep_ran = False
+    reencoded = False
+    if mode == "never":
+        pass
+    elif mode in ("always", "lossless") or _markers_left():
+        if mode == "auto":
+            actions.append(
+                "residual AI/C2PA markers after document-level strip "
+                "(embedded image suspected); running deep image pass"
+            )
+        deep_ran = _pdf_deep_image_clean(dest, actions, deadline=deadline)
+        _settle(deep_ran)
+        # Anything inside the JPEG itself rides along with a passed-through
+        # stream. Recompressing is the only way left to shift it, so spend
+        # the quality only when something demonstrably survived: AI/C2PA
+        # markers always count, and under `always` -- which promises to
+        # clear camera and editor traces too -- so does ordinary EXIF.
+        #
+        # Two things make asking pointless. In `lossless` the answer is
+        # discarded, and _markers_left() runs a full inspect_pdf that spawns
+        # tools of its own. And if rung 1 never ran -- no Ghostscript, or the
+        # budget is gone -- rung 2 cannot run either, and asking would only
+        # append the same warning twice.
+        survived = (
+            mode != "lossless"
+            and deep_ran
+            and (
+                _markers_left()
+                or (mode == "always" and embedded_image_metadata_present(dest.read_bytes()))
+            )
+        )
+        if survived:
+            actions.append(
+                "metadata survived the lossless pass (it is inside the image "
+                "stream); escalating to a re-encoding pass"
+            )
+            reencoded = _pdf_deep_image_clean(dest, actions, reencode=True, deadline=deadline)
+            deep_ran = deep_ran or reencoded
+            _settle(reencoded)
+    else:
+        actions.append(
+            "deep image pass not needed for AI/C2PA markers; pass "
+            'deep_images="always" to also clear non-AI EXIF inside images'
+        )
 
-    # Degraded: strip obvious XMP packets between <?xpacket begin and end
-    # (linear scan - the lazy .*? form is quadratic on unclosed begin markers)
-    text = data
-    new, n = _drop_tag_blocks(text, _XMP_PACKET_OPEN_RE, _XMP_PACKET_CLOSE_RE)
-    if n:
-        actions.append(f"stripped XMP xpacket x{n} (degraded; may leave offsets broken)")
-        # PDF structural risk: document degraded mode clearly
-        safe_write_bytes(dest, new)
-        actions.append("warning: pure-stdlib PDF strip is best-effort; prefer exiftool")
-        return actions, {"mode": "stdlib-xmp", "degraded": True}
+    c2patool = which("c2patool")
+    # c2patool does not always strip; leave note
+    if c2patool:
+        actions.append("c2patool available for inspect; strip via exiftool/re-export")
 
-    safe_write_bytes(dest, data)
-    actions.append(
-        "no PDF cleaner available (install exiftool for reliable metadata strip); copied as-is"
-    )
-    return actions, {"mode": "copy", "degraded": True}
+    meta: dict[str, Any] = {
+        "mode": document_mode,
+        "structural_rewrite": rewritten,
+        "deep_images": mode,
+        "deep_image_pass": deep_ran,
+        "images_reencoded": reencoded,
+    }
+    if not exiftool:
+        # The deep pass may well have run, but the document-level strip was
+        # the stdlib one, so the result is still best-effort.
+        meta["degraded"] = True
+    return actions, meta
 
 
 # ---------------------------------------------------------------------------

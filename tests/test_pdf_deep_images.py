@@ -368,3 +368,31 @@ def test_no_escalation_when_the_deep_pass_cannot_run(tmp_path, monkeypatch):
     assert meta["images_reencoded"] is False
     assert not any("escalating" in a for a in actions)
     assert sum("install ghostscript" in a for a in actions) == 1
+
+
+@needs_ghostscript
+def test_the_deep_pass_runs_without_exiftool(tmp_path, monkeypatch):
+    """Ghostscript reaches image XObjects on its own; exiftool is not its gate.
+
+    The ladder used to live inside `if exiftool:`, so a machine with Ghostscript
+    but no exiftool fell through to the stdlib path and never touched metadata
+    inside images -- the one job exiftool cannot do anyway.
+    """
+    import container_meta
+
+    real_which = container_meta.which
+    monkeypatch.setattr(
+        container_meta,
+        "which",
+        lambda name: None if name == "exiftool" else real_which(name),
+    )
+
+    src = tmp_path / "in.pdf"
+    src.write_bytes(_pdf_with_image(_c2pa_like_jpeg()))
+    actions, meta = clean_pdf(src, tmp_path / "out.pdf", deep_images="always")
+
+    assert meta["deep_image_pass"] is True
+    assert meta["degraded"] is True, "the document-level strip was still the stdlib one"
+    assert meta["mode"] in ("stdlib-xmp", "copy")
+    # The swap of one provenance stamp for another must not be silent.
+    assert any("stamped its own /Producer" in a for a in actions)

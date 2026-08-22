@@ -816,7 +816,7 @@ Layer B makes sense when you specifically want the premium model's **thinking an
 | GIF | Comment / XMP application extensions | Drop comment & XMP, keep `NETSCAPE2.0` loop |
 | TIFF (classic + BigTIFF) | IFD tags: XMP, EXIF, GPS, IPTC, MakerNote | Drop tags, zero payloads, keep strips |
 | SVG | `<metadata>`, XMP | Strip blocks |
-| PDF | Byte/XMP + optional tools | **exiftool** then **qpdf**, then **ghostscript** for metadata inside embedded images; degraded without exiftool or qpdf |
+| PDF | Byte/XMP + optional tools | **exiftool** then **qpdf**, then **ghostscript** for metadata inside embedded images; each missing tool degrades a different layer (document strip, structural rewrite, embedded images) |
 | DOCX | docProps / customXml | Scrub props, drop customXml |
 | EPUB | OPF metadata, XHTML meta/JSON-LD, embedded media | Scrub OPF, strip XHTML meta, clean media + Layer A (skips encrypted parts) |
 | ODT | meta.xml | Drop generator / AI-ish meta |
