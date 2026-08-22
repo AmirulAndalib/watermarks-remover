@@ -43,16 +43,20 @@ def _spawn_sites(source: str) -> list[ast.Call]:
     return sites
 
 
-def _mentions_the_shared_flag(node: ast.expr) -> bool:
-    """True when the expression is, or is built from, subprocess_creationflags.
+def _uses_the_shared_flag(node: ast.expr) -> bool:
+    """True for `subprocess_creationflags`, alone or inside a `|` chain.
 
-    Checking only that `creationflags` is present would accept a literal 0,
-    which is the value that leaves the console window in place on Windows.
+    Mentioning the name is not enough: `subprocess_creationflags + 1` and
+    `wrapper(subprocess_creationflags)` both evaluate to something other than the
+    shared value, and either could leave the console window in place while
+    reading as compliant. Only the name itself and bitwise-or combinations of it
+    are accepted, since that is the one composition that keeps the flag set.
     """
-    return any(
-        isinstance(child, ast.Name) and child.id == "subprocess_creationflags"
-        for child in ast.walk(node)
-    )
+    if isinstance(node, ast.Name):
+        return node.id == "subprocess_creationflags"
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return _uses_the_shared_flag(node.left) or _uses_the_shared_flag(node.right)
+    return False
 
 
 def test_every_spawn_site_suppresses_the_console():
@@ -62,19 +66,45 @@ def test_every_spawn_site_suppresses_the_console():
         for call in _spawn_sites(path.read_text(encoding="utf-8")):
             counted += 1
             flag = next((kw for kw in call.keywords if kw.arg == "creationflags"), None)
-            if flag is None or not _mentions_the_shared_flag(flag.value):
+            if flag is None or not _uses_the_shared_flag(flag.value):
                 missing.append(f"{path.name}:{call.lineno}")
 
     assert counted, "no subprocess spawn sites found -- has the layout changed?"
     assert not missing, "spawn sites not passing subprocess_creationflags: " + ", ".join(missing)
 
 
-def test_the_static_check_rejects_a_hardcoded_zero():
-    """The guard must not be satisfied by a value that keeps the window."""
-    source = "import subprocess\nsubprocess.run(['x'], creationflags=0)\n"
+def _flag_expression(expression: str) -> ast.expr:
+    source = f"import subprocess\nsubprocess.run(['x'], creationflags={expression})\n"
     call = _spawn_sites(source)[0]
-    flag = next(kw for kw in call.keywords if kw.arg == "creationflags")
-    assert _mentions_the_shared_flag(flag.value) is False
+    return next(kw for kw in call.keywords if kw.arg == "creationflags").value
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "0",
+        "subprocess.CREATE_NEW_CONSOLE",
+        "subprocess_creationflags + 1",
+        "wrapper(subprocess_creationflags)",
+        "subprocess_creationflags if nt else 0",
+    ],
+)
+def test_the_static_check_rejects_what_is_not_the_shared_flag(expression):
+    """Naming the flag is not the same as passing it."""
+    assert _uses_the_shared_flag(_flag_expression(expression)) is False
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "subprocess_creationflags",
+        "subprocess_creationflags | subprocess.CREATE_NEW_PROCESS_GROUP",
+        "subprocess.CREATE_NEW_PROCESS_GROUP | subprocess_creationflags",
+    ],
+)
+def test_the_static_check_accepts_the_shared_flag(expression):
+    """A spawn site may add flags of its own, as long as this one survives."""
+    assert _uses_the_shared_flag(_flag_expression(expression)) is True
 
 
 def test_flag_value_matches_the_platform():
