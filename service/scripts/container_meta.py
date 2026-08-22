@@ -1911,52 +1911,68 @@ _JPEG_METADATA_MARKERS = frozenset({0xE1, 0xEB, 0xED})
 _JPEG_SCAN_END = frozenset({0xDA, 0xD9})
 
 
-def _jpeg_carries_metadata(blob: bytes, start: int) -> bool:
-    """Walk one JPEG's segment headers looking for a metadata APPn."""
+def _iter_jpeg_segments(blob: bytes, start: int):
+    """Yield (marker, payload) for each header segment of one JPEG.
+
+    A marker may be preceded by any number of 0xFF fill bytes, so the run has to
+    be consumed before reading it. Taking the first 0xFF as the marker instead
+    shifts the length read by one byte, and the walk then either stops early or
+    wanders -- either way a provenance segment further along goes unseen.
+    """
     i = start + 2
     limit = len(blob)
-    while i + 3 < limit and blob[i] == 0xFF:
+    while i + 3 < limit:
+        if blob[i] != 0xFF:
+            return
+        while i + 1 < limit and blob[i + 1] == 0xFF:
+            i += 1
+        if i + 1 >= limit:
+            return
         marker = blob[i + 1]
         if marker in _JPEG_SCAN_END:
-            return False
+            return
         if 0xD0 <= marker <= 0xD8:
             i += 2
             continue
+        if i + 4 > limit:
+            return
         length = int.from_bytes(blob[i + 2 : i + 4], "big")
         if length < 2:
-            return False
-        if marker in _JPEG_METADATA_MARKERS:
-            return True
+            return
+        yield marker, blob[i + 4 : i + 2 + length]
         i += 2 + length
+
+
+def _jpeg_carries_metadata(blob: bytes, start: int) -> bool:
+    """True when this JPEG holds a metadata APPn segment of any kind."""
+    return any(marker in _JPEG_METADATA_MARKERS for marker, _ in _iter_jpeg_segments(blob, start))
+
+
+def _jpeg_carries_provenance(blob: bytes, start: int) -> bool:
+    """True when this JPEG holds JUMBF or a provenance XMP packet."""
+    for marker, payload in _iter_jpeg_segments(blob, start):
+        if marker in _JPEG_PROVENANCE_MARKERS:
+            lowered = payload.lower()
+            if any(sig in lowered for sig in _PROVENANCE_SIGNATURES):
+                return True
     return False
+
+
+def _any_jpeg(data: bytes, predicate) -> bool:
+    i = 0
+    while True:
+        start = data.find(b"\xff\xd8\xff", i)
+        if start < 0:
+            return False
+        if predicate(data, start):
+            return True
+        i = start + 2
 
 
 # APP11 carries JUMBF, which is how C2PA travels; an APP1 XMP packet can name
 # the provenance chain instead. Ordinary EXIF is deliberately not in this set.
 _JPEG_PROVENANCE_MARKERS = frozenset({0xE1, 0xEB})
 _PROVENANCE_SIGNATURES = (b"jumbf", b"c2pa", b"contentauth", b"dcterms:provenance")
-
-
-def _jpeg_carries_provenance(blob: bytes, start: int) -> bool:
-    """Walk one JPEG's segments looking for a provenance payload."""
-    i = start + 2
-    limit = len(blob)
-    while i + 3 < limit and blob[i] == 0xFF:
-        marker = blob[i + 1]
-        if marker in _JPEG_SCAN_END:
-            return False
-        if 0xD0 <= marker <= 0xD8:
-            i += 2
-            continue
-        length = int.from_bytes(blob[i + 2 : i + 4], "big")
-        if length < 2:
-            return False
-        if marker in _JPEG_PROVENANCE_MARKERS:
-            payload = blob[i + 4 : i + 2 + length].lower()
-            if any(sig in payload for sig in _PROVENANCE_SIGNATURES):
-                return True
-        i += 2 + length
-    return False
 
 
 def embedded_provenance_present(data: bytes) -> bool:
@@ -1971,14 +1987,7 @@ def embedded_provenance_present(data: bytes) -> bool:
     Ordinary EXIF is not provenance and must not appear here: `auto` promises
     not to spend a re-distill on camera and editor traces.
     """
-    i = 0
-    while True:
-        start = data.find(b"\xff\xd8\xff", i)
-        if start < 0:
-            return False
-        if _jpeg_carries_provenance(data, start):
-            return True
-        i = start + 2
+    return _any_jpeg(data, _jpeg_carries_provenance)
 
 
 def embedded_image_metadata_present(data: bytes) -> bool:
@@ -1989,14 +1998,7 @@ def embedded_image_metadata_present(data: bytes) -> bool:
     needs no external tool: the segment headers are readable straight from the
     PDF's bytes.
     """
-    i = 0
-    while True:
-        start = data.find(b"\xff\xd8\xff", i)
-        if start < 0:
-            return False
-        if _jpeg_carries_metadata(data, start):
-            return True
-        i = start + 2
+    return _any_jpeg(data, _jpeg_carries_metadata)
 
 
 DEEP_IMAGE_MODES = frozenset({"auto", "always", "lossless", "never"})

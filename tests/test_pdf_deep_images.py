@@ -75,6 +75,10 @@ def _jpeg_dimensions(data: bytes) -> tuple[int, int]:
         if data[i] != 0xFF:
             i += 1
             continue
+        # Fill bytes may repeat before a marker -- the same detail the walker in
+        # container_meta has to honour.
+        while i + 1 < len(data) and data[i + 1] == 0xFF:
+            i += 1
         marker = data[i + 1]
         if marker in (0xC0, 0xC1, 0xC2, 0xC3):
             height, width = struct.unpack(">HH", data[i + 5 : i + 9])
@@ -441,7 +445,6 @@ def test_provenance_detector_ignores_ordinary_exif():
     assert container_meta.embedded_provenance_present(pdf) is False
 
 
-@needs_exiftool
 def test_blanked_xmp_keeps_the_pdf_parseable(tmp_path, monkeypatch):
     """The stdlib path must not shift byte offsets out from under the xref."""
     import container_meta
@@ -473,3 +476,16 @@ def test_blanked_xmp_keeps_the_pdf_parseable(tmp_path, monkeypatch):
     cleaned = dest.read_bytes()
     assert len(cleaned) == src.stat().st_size, "blanking must not resize the file"
     assert b"<?xpacket" not in cleaned
+
+
+def test_provenance_survives_marker_fill_bytes():
+    """A marker may be preceded by 0xFF padding; the walker must skip it.
+
+    Reading the first fill byte as the marker shifts the length by one, and the
+    walk then misses everything after it -- including the APP11 that decides
+    whether `auto` runs the deep pass at all.
+    """
+    import container_meta
+
+    padded = _c2pa_like_jpeg().replace(b"\xff\xeb", b"\xff\xff\xff\xeb", 1)
+    assert container_meta.embedded_provenance_present(_pdf_with_image(padded)) is True
