@@ -9,6 +9,7 @@ import io
 import posixpath
 import re
 import subprocess
+import tempfile
 import urllib.parse
 import zipfile
 import zlib
@@ -1872,6 +1873,54 @@ def _pdf_structural_rewrite(dest: Path, actions: list[str]) -> bool:
     return False
 
 
+# APPn segments a JPEG can carry inside a PDF image XObject. APP0 (JFIF) is
+# structural and APP2 (ICC) decides how the colours are interpreted, so neither
+# counts as metadata to strip; APP1 (EXIF/XMP), APP11 (JUMBF/C2PA) and APP13
+# (Photoshop resources) do.
+_JPEG_METADATA_MARKERS = frozenset({0xE1, 0xEB, 0xED})
+_JPEG_SCAN_END = frozenset({0xDA, 0xD9})
+
+
+def _jpeg_carries_metadata(blob: bytes, start: int) -> bool:
+    """Walk one JPEG's segment headers looking for a metadata APPn."""
+    i = start + 2
+    limit = len(blob)
+    while i + 3 < limit and blob[i] == 0xFF:
+        marker = blob[i + 1]
+        if marker in _JPEG_SCAN_END:
+            return False
+        if 0xD0 <= marker <= 0xD8:
+            i += 2
+            continue
+        length = int.from_bytes(blob[i + 2 : i + 4], "big")
+        if length < 2:
+            return False
+        if marker in _JPEG_METADATA_MARKERS:
+            return True
+        i += 2 + length
+    return False
+
+
+def embedded_image_metadata_present(data: bytes) -> bool:
+    """True when a JPEG inside *data* still carries a metadata APPn segment.
+
+    Ghostscript's JPEG pass-through copies the image bytes verbatim, so EXIF
+    that lives inside the stream survives a lossless deep pass. Detecting it
+    needs no external tool: the segment headers are readable straight from the
+    PDF's bytes.
+    """
+    i = 0
+    while True:
+        start = data.find(b"\xff\xd8\xff", i)
+        if start < 0:
+            return False
+        if _jpeg_carries_metadata(data, start):
+            return True
+        i = start + 2
+
+
+DEEP_IMAGE_MODES = frozenset({"auto", "always", "lossless", "never"})
+
 _GHOSTSCRIPT_NAMES = ("gs", "gswin64c", "gswin32c")
 
 
@@ -1924,7 +1973,16 @@ def _pdf_deep_image_clean(dest: Path, actions: list[str], *, reencode: bool = Fa
         )
         return False
 
-    tmp = dest.with_name(dest.name + ".gs-tmp")
+    # A predictable path beside *dest* is a symlink-swap target: Ghostscript
+    # opens it directly, which would sidestep the no-symlink contract that
+    # safe_write_bytes upholds. Write into a private directory instead and
+    # hand the validated bytes over through the safe writer.
+    with tempfile.TemporaryDirectory(prefix="wr-gs-") as staging:
+        tmp = Path(staging) / "deep-image.pdf"
+        return _run_ghostscript(gs, dest, tmp, actions, reencode=reencode)
+
+
+def _run_ghostscript(gs: str, dest: Path, tmp: Path, actions: list[str], *, reencode: bool) -> bool:
     try:
         r = subprocess.run(
             [
@@ -1950,19 +2008,17 @@ def _pdf_deep_image_clean(dest: Path, actions: list[str], *, reencode: bool = Fa
             preexec_fn=subprocess_preexec_fn,
         )
     except Exception as e:
-        tmp.unlink(missing_ok=True)
         actions.append(f"ghostscript deep image pass failed: {e}")
         return False
 
     if r.returncode != 0 or not tmp.is_file() or tmp.stat().st_size == 0:
-        tmp.unlink(missing_ok=True)
         actions.append(
             f"ghostscript deep image pass skipped (rc={r.returncode}); "
             "metadata inside embedded images may remain"
         )
         return False
 
-    tmp.replace(dest)
+    safe_write_bytes(dest, tmp.read_bytes())
     actions.append(
         "ghostscript pdfwrite deep image pass, images re-encoded (rc=0)"
         if reencode
@@ -1990,6 +2046,13 @@ def clean_pdf(path: Path, dest: Path, *, deep_images: str = "auto") -> tuple[lis
     data = path.read_bytes()
     dest.parent.mkdir(parents=True, exist_ok=True)
 
+    # Silently treating a typo as "auto" would turn a request for lossless
+    # cleaning into one that may recompress, so refuse it instead.
+    if deep_images not in DEEP_IMAGE_MODES:
+        raise ValueError(
+            f"deep_images must be one of {sorted(DEEP_IMAGE_MODES)}, got {deep_images!r}"
+        )
+
     exiftool = which("exiftool")
     if exiftool:
         safe_write_bytes(dest, data)
@@ -2004,7 +2067,7 @@ def clean_pdf(path: Path, dest: Path, *, deep_images: str = "auto") -> tuple[lis
 
         # Document-level strip is done. Metadata inside embedded images is out
         # of reach from here, so decide whether to re-distill.
-        mode = deep_images if deep_images in ("auto", "always", "lossless", "never") else "auto"
+        mode = deep_images
 
         def _markers_left() -> bool:
             res_c2pa, res_ai, _f, _d = inspect_pdf(dest, dest.read_bytes())
@@ -2030,12 +2093,17 @@ def clean_pdf(path: Path, dest: Path, *, deep_images: str = "auto") -> tuple[lis
                 )
             deep_ran = _pdf_deep_image_clean(dest, actions)
             _settle(deep_ran)
-            # A marker inside the JPEG itself rides along with a passed-through
+            # Anything inside the JPEG itself rides along with a passed-through
             # stream. Recompressing is the only way left to shift it, so spend
-            # the quality only when one demonstrably survived.
-            if mode != "lossless" and _markers_left():
+            # the quality only when something demonstrably survived: AI/C2PA
+            # markers always count, and under `always` -- which promises to
+            # clear camera and editor traces too -- so does ordinary EXIF.
+            survived = _markers_left() or (
+                mode == "always" and embedded_image_metadata_present(dest.read_bytes())
+            )
+            if mode != "lossless" and survived:
                 actions.append(
-                    "markers survived the lossless pass (mark is inside the image "
+                    "metadata survived the lossless pass (it is inside the image "
                     "stream); escalating to a re-encoding pass"
                 )
                 reencoded = _pdf_deep_image_clean(dest, actions, reencode=True)

@@ -18,7 +18,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "service" / "scripts"))
 
 from common import which
-from container_meta import clean_pdf, which_ghostscript
+from container_meta import (
+    clean_pdf,
+    embedded_image_metadata_present,
+    which_ghostscript,
+)
 
 needs_exiftool = pytest.mark.skipif(not which("exiftool"), reason="exiftool not installed")
 needs_ghostscript = pytest.mark.skipif(not which_ghostscript(), reason="ghostscript not installed")
@@ -139,6 +143,13 @@ _TINY_JPEG = base64.b64decode(
 )
 
 
+def _exif_only_jpeg() -> bytes:
+    """A JPEG carrying camera-style EXIF and nothing an AI scan would flag."""
+    exif = b"Exif\x00\x00MM\x00*\x00\x00\x00\x08 Camera Model X"
+    app1 = b"\xff\xe1" + struct.pack(">H", len(exif) + 2) + exif
+    return _TINY_JPEG[:2] + app1 + _TINY_JPEG[2:]
+
+
 def _c2pa_like_jpeg() -> bytes:
     """A tiny JPEG marked the way a C2PA-signed one is: APP11 + XMP in APP1."""
     jumbf = b"JP\x00\x00jumbc2pa contentauth manifest"
@@ -248,3 +259,85 @@ def test_lossless_refuses_to_escalate(tmp_path, monkeypatch):
 
     assert calls == [False]
     assert meta["images_reencoded"] is False
+
+
+@needs_exiftool
+def test_rejects_an_unknown_deep_images_value(tmp_path):
+    """A typo must not silently downgrade to a mode that may recompress."""
+    src = tmp_path / "in.pdf"
+    src.write_bytes(_minimal_pdf(b"<< /Producer (Claude) >>"))
+
+    with pytest.raises(ValueError, match="deep_images"):
+        clean_pdf(src, tmp_path / "out.pdf", deep_images="lossles")
+
+
+def test_metadata_detector_ignores_structural_segments():
+    """APP0 (JFIF) is structural and APP2 (ICC) carries colour, not provenance."""
+    jfif_and_icc = (
+        _TINY_JPEG[:2]
+        + b"\xff\xe0"
+        + struct.pack(">H", 7)
+        + b"JFIF\x00"
+        + b"\xff\xe2"
+        + struct.pack(">H", 14)
+        + b"ICC_PROFILE\x00"
+        + _TINY_JPEG[2:]
+    )
+    assert embedded_image_metadata_present(jfif_and_icc) is False
+    assert embedded_image_metadata_present(_exif_only_jpeg()) is True
+
+
+@needs_exiftool
+@needs_ghostscript
+def test_always_reaches_exif_inside_the_image(tmp_path):
+    """`always` promises camera and editor traces go too, so they must go.
+
+    Which rung achieves it depends on the file: pdfwrite usually rebuilds the
+    JPEG container and drops APPn while passing the compressed data through,
+    but it copies some streams verbatim, and then only a re-encode shifts them.
+    Assert the guarantee, not the rung.
+    """
+    src = tmp_path / "in.pdf"
+    src.write_bytes(_pdf_with_image(_exif_only_jpeg()))
+    dest = tmp_path / "out.pdf"
+    assert embedded_image_metadata_present(src.read_bytes()) is True
+
+    _actions, meta = clean_pdf(src, dest, deep_images="always")
+
+    assert meta["deep_image_pass"] is True
+    assert embedded_image_metadata_present(dest.read_bytes()) is False
+
+
+@needs_exiftool
+def test_auto_leaves_plain_exif_and_the_pixels_alone(tmp_path):
+    """Ordinary EXIF is not an AI mark, so `auto` has no reason to chase it."""
+    src = tmp_path / "in.pdf"
+    src.write_bytes(_pdf_with_image(_exif_only_jpeg()))
+    dest = tmp_path / "out.pdf"
+
+    actions, meta = clean_pdf(src, dest, deep_images="auto")
+
+    assert meta["deep_image_pass"] is False
+    assert meta["images_reencoded"] is False
+    assert any("deep image pass not needed" in a for a in actions)
+
+
+@needs_exiftool
+def test_always_escalates_when_the_lossless_pass_keeps_exif(tmp_path, monkeypatch):
+    """The safety net, with the pass stubbed so the EXIF cannot be removed."""
+    import container_meta
+
+    calls: list[bool] = []
+
+    def _stub(dest, actions, *, reencode=False):
+        calls.append(reencode)
+        return True
+
+    monkeypatch.setattr(container_meta, "_pdf_deep_image_clean", _stub)
+
+    src = tmp_path / "in.pdf"
+    src.write_bytes(_pdf_with_image(_exif_only_jpeg()))
+    _actions, meta = clean_pdf(src, tmp_path / "out.pdf", deep_images="always")
+
+    assert calls == [False, True], "lossless first, then the re-encoding escalation"
+    assert meta["images_reencoded"] is True

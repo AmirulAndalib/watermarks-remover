@@ -59,7 +59,7 @@ from common import (
     subprocess_preexec_fn,
     which,
 )
-from container_meta import clean_container, inspect_container
+from container_meta import DEEP_IMAGE_MODES, clean_container, inspect_container
 from format_dispatch import classify_bytes
 from image_meta import clean_image, inspect_image, run_synthid_score
 from score_stylometry import score_text_stylometry
@@ -607,6 +607,12 @@ def _parse_clean_options(options: Any) -> dict[str, Any]:
         if not isinstance(value, expected_type):
             type_name = "boolean" if expected_type is bool else "string"
             raise ValueError(f"option {key!r} must be a {type_name}")
+    # An unrecognised deep_images value used to fall back to "auto", which turns
+    # a request for lossless cleaning into one that may recompress. Reject it
+    # here, where every caller -- single file and batch alike -- passes through.
+    deep_images = options.get("deep_images")
+    if deep_images is not None and deep_images not in DEEP_IMAGE_MODES:
+        raise ValueError(f"option 'deep_images' must be one of {sorted(DEEP_IMAGE_MODES)}")
     return options
 
 

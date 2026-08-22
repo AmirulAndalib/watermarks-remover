@@ -182,6 +182,31 @@ def test_unknown_option_rejected(conn):
     assert "unknown option" in body["error"]
 
 
+def test_unknown_deep_images_mode_rejected(conn):
+    """A typo must answer 400, not fall through to a mode that may recompress."""
+    status, body = _post(
+        conn,
+        "/clean",
+        {"file": _b64(b"x"), "name": "x.txt", "options": {"deep_images": "lossles"}},
+    )
+    assert status == 400
+    assert "deep_images" in body["error"]
+
+
+def test_known_deep_images_modes_accepted(conn):
+    for mode in ("auto", "always", "lossless", "never"):
+        status, _body = _post(
+            conn,
+            "/clean",
+            {
+                "file": _b64(b"plain text\n"),
+                "name": "x.txt",
+                "options": {"deep_images": mode},
+            },
+        )
+        assert status == 200, mode
+
+
 @pytest.mark.parametrize(
     ("key", "value", "type_name"),
     [

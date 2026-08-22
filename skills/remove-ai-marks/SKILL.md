@@ -91,7 +91,7 @@ clients.
 `keep_non_ai_metadata`, `strip_all_metadata`, `remove_pixel` (`ctrlregen` |
 `diffusion`) (images), `also_layer_a_text` (containers), `deep_images`
 (`auto` | `always` | `lossless` | `never`, PDF: how hard to chase metadata
-carried inside embedded images), `detect_before` / `detect_after` (text and
+carried inside embedded images; anything else is rejected), `detect_before` / `detect_after` (text and
 images: run watermark detection on the input and on the cleaned output,
 included in the report).
 
@@ -315,9 +315,11 @@ Always state:
   `ghostscript` server-side as well — check `/capabilities`. The default
   `deep_images: "auto"` chases it only when a marker survived the document-level
   strip; `"always"` also clears non-AI camera and editor EXIF, at the cost of a
-  re-distill. Clearing a mark held in the JPEG's own APP segments means
-  recompressing the image, so `"lossless"` refuses that and reports the survivor
-  instead.
+  re-distill. Clearing anything held in the JPEG's own APP segments means
+  recompressing the image, so `"lossless"` stops before that: it never touches
+  image data, and whatever survives shows up in the usual `still_has_c2pa` /
+  `still_has_ai_metadata` / `post_findings` fields of the report rather than in a
+  field of its own. An unrecognised value is an error, not a silent fallback.
 - Pixel-domain **image** watermarks can be removed optionally via the external CtrlRegen backend (`remove_pixel: ctrlregen`) or MarkDiffusion's DiffusionPurification (`remove_pixel: diffusion`); both are heavy, drift the image, and need the backend present (`/capabilities`). Audio/video watermarks remain out of scope.
 - The reverse-SynthID scorer is external, best-effort, and under a non-commercial Research License; not an official Google detector. Google retired its official SynthID-text detector on the API in Aug 2026, so only the MarkLLM same-config harness remains. Claude's detection API has been announced but is not public yet — the `claude-text` detector reports unavailable until it ships.
 - **C2PA soft binding** (content watermark that re-links to a remote manifest after metadata strip) is out of scope — stripping hard-bound C2PA does not clear it.

@@ -861,20 +861,25 @@ So `clean_pdf` adds a third pass, `deep_images`, driven by Ghostscript's
    the object graph while copying the compressed image data byte-for-byte —
    verified by hashing the streams before and after. This clears everything the
    PDF wrapped around the image.
-2. **Re-encode, only on evidence.** A mark living in the JPEG's own APP1/APP11
-   segments travels with the bytes it is attached to, so pass-through preserves
-   it. When detection still reports a marker after rung 1, the same pass runs
-   with pass-through off and the image is recompressed. Pixels are spent only
-   when a provenance mark demonstrably survived the lossless attempt.
+2. **Re-encode, only on evidence.** Anything living in the JPEG's own APPn
+   segments — EXIF in APP1, a C2PA manifest in APP11, Photoshop resources in
+   APP13 — travels with the bytes it is attached to, so pass-through preserves
+   it. Rung 2 runs the same pass with pass-through off, and only when rung 1
+   demonstrably left something behind: an AI/C2PA marker in any mode, or, under
+   `always`, any surviving APPn metadata. APP0 (JFIF) and APP2 (ICC) are left
+   alone — the first is structural and the second decides how the colours are
+   read. Pixels are spent on evidence, never on suspicion.
 
 `deep_images` takes `auto` (default: rung 1 only when markers survived the
 document strip, then rung 2 if they survive that), `always` (rung 1 for every
-PDF, which also clears non-AI camera and editor EXIF), `lossless` (never
-recompress, accept a surviving mark instead) and `never`. The report says which
-rungs ran via `meta.deep_image_pass` and `meta.images_reencoded`, and when the
-pass is skipped it names the option that would go further:
+PDF, escalating to rung 2 for camera and editor EXIF too), `lossless` (rung 1
+only — never recompress, and report whatever survives through the usual
+`still_has_c2pa` / `post_findings` fields) and `never`. An unrecognised value is
+rejected rather than quietly treated as `auto`. The report says which rungs ran
+via `meta.deep_image_pass` and `meta.images_reencoded`, and when the pass is
+skipped it names the option that would go further:
 
-```
+```text
 deep image pass not needed for AI/C2PA markers; pass deep_images="always"
 to also clear non-AI EXIF inside images
 ```
@@ -882,7 +887,7 @@ to also clear non-AI EXIF inside images
 Without Ghostscript installed the clean still runs and says what it could not
 reach:
 
-```
+```text
 warning: metadata inside embedded images left in place; install ghostscript
 for the deep image pass
 ```
