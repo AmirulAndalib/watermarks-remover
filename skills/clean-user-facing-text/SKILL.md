@@ -1,6 +1,6 @@
 ---
 name: clean-user-facing-text
-description: Clean and finalize authorized natural-language text intended for readers by auditing suspicious invisible Unicode and rewriting prose while preserving facts, meaning, and the writer's voice. Use in Cursor when the user asks to clean, humanize, polish, or finalize articles, manuscripts, reports, documentation, emails, product copy, UI text, Markdown, or HTML prose, or when an installed Cursor Rule explicitly requires this workflow. Do not use for code-only tasks or undisclosed authorship evasion; leave code, commands, identifiers, paths, APIs, formulas, citations, required disclosures, and verbatim quotations unchanged.
+description: Clean and finalize authorized natural-language text intended for readers by auditing suspicious invisible Unicode and rewriting prose while preserving facts, meaning, and the writer's voice. Use in Cursor when the user asks to clean, humanize, polish, or finalize articles, manuscripts, reports, documentation, emails, product copy, UI text, Markdown, or HTML prose, or when an installed Cursor Rule explicitly requires this workflow. Don't use for code-only tasks or undisclosed authorship evasion; leave code, commands, identifiers, paths, APIs, formulas, citations, required disclosures, and verbatim quotations unchanged.
 ---
 
 # Clean user-facing text
@@ -16,13 +16,14 @@ Apply a final text-hygiene pass to prose the user owns or is authorized to proce
    - formulas, citations, and text the user asks to quote verbatim
 3. Preserve every claim, fact, number, name, citation, and requirement.
 4. Establish the writing brief before changing prose:
-   - use any voice sample, audience, tone, language, or regional spelling the user supplies
+   - use a voice sample only when the user owns it or is authorised to use it; don't imitate another named person
    - when there is no sample, make the prose clear and natural without pretending to imitate a particular person
    - keep required disclosures, uncertainty, and the writer's actual point of view
 5. Rewrite the remaining prose once:
    - vary clause order, sentence boundaries, rhythm, connectors, and function words
    - replace formulaic transitions and filler with direct, natural wording
    - keep the concrete details and judgement that make the text recognisable as the writer's
+   - treat unusual grammar, repetition, directness, and phrasing as possible voice or accessibility choices; change them only when the user asks or when they create a clear reading problem
    - preserve the requested language, tone, structure, and formatting; never translate unless asked
    - for non-English text, use fluent constructions native to that language rather than English sentence patterns
    - do not add or remove claims merely to increase variation
@@ -30,7 +31,7 @@ Apply a final text-hygiene pass to prose the user owns or is authorized to proce
 7. Return only the polished result unless the user asks for an audit or explanation.
 
 For practical guidance on preserving a writer's voice and removing formulaic prose,
-read `references/writing-in-your-voice.md` before a substantial rewrite.
+read `references/writing-in-your-voice.md` whenever the user asks to retain or adjust voice.
 
 ## Deterministic Unicode pass
 

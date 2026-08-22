@@ -7,11 +7,12 @@ the details that show they know what they are talking about.
 ## Start with a brief
 
 Before rewriting, identify what the writer is trying to say and who needs to
-read it. Use a supplied writing sample as a guide to sentence length, word
-choice, humour, and formality. A sample is a reference point, not a licence to
-invent personal stories or feelings the writer did not provide.
+read it. Use a writing sample only when the user owns it or is authorised to
+use it. Don't imitate another named person. An approved sample can guide sentence
+length, word choice, humour, and formality. It's a reference point, not a
+licence to invent personal stories or feelings the writer didn't provide.
 
-If there is no sample, use plain language and a natural rhythm. Do not claim to
+If there is no sample, use plain language and a natural rhythm. Don't claim to
 write in a named person's voice from a guess.
 
 Keep the language and regional spelling the writer used unless they ask for a
@@ -26,8 +27,12 @@ sentence.
 
 Keep a writer's useful rough edges. A dry joke, a firm judgement, or an unusual
 turn of phrase may be the part that makes the piece feel like theirs. Clean up
-confusion, repetition, and accidental clutter. Do not sand every opinion down
+confusion, repetition, and accidental clutter. Don't sand every opinion down
 until it says nothing.
+
+Treat unusual grammar, repetition, directness, and phrasing as possible voice
+or accessibility choices. Change them only when the writer asks, or when they
+create a clear reading problem.
 
 ## Watch for template prose
 
@@ -41,10 +46,10 @@ adjectives and filler phrases that merely repeat the sentence before them.
 
 ## Keep the boundary clear
 
-Do not add facts, citations, experience, emotion, or certainty. Do not remove a
+Don't add facts, citations, experience, emotion, or certainty. Don't remove a
 required disclosure, attribution, warning, or qualification. Preserve quoted
 text, code, names, numbers, and technical identifiers exactly where the main
 skill requires it.
 
-This pass can make authorised prose clearer and more personal. It cannot prove
+This pass can make authorised prose clearer and more personal. It can't prove
 who wrote the original text or establish that a detector will reach any result.
