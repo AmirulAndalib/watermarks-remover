@@ -1832,6 +1832,25 @@ def inspect_pdf(path: Path, data: bytes) -> tuple[bool, bool, list[str], dict]:
     return has_c2pa, has_ai or has_c2pa, findings, {"tools": tools}
 
 
+def _blank_xmp_packets(data: bytes) -> tuple[bytes, int]:
+    """Overwrite XMP packets with spaces, leaving every byte offset intact.
+
+    Deleting the bytes shifts every xref offset and stream /Length that follows,
+    which is how the stdlib path could hand back a PDF that no longer parses --
+    and with `deep_images="never"` nothing downstream rebuilds it. Blanking
+    leaves the file structurally identical: XMP packets are padded with
+    whitespace by design, so a whitespace-only one is unremarkable.
+    """
+    out = bytearray(data)
+    count = 0
+    for open_start, _oe, _cs, close_end in _iter_tag_blocks(
+        data, _XMP_PACKET_OPEN_RE, _XMP_PACKET_CLOSE_RE
+    ):
+        out[open_start:close_end] = b" " * (close_end - open_start)
+        count += 1
+    return bytes(out), count
+
+
 def _pdf_structural_rewrite(
     dest: Path, actions: list[str], deadline: "_Deadline | None" = None
 ) -> bool:
@@ -1910,6 +1929,56 @@ def _jpeg_carries_metadata(blob: bytes, start: int) -> bool:
             return True
         i += 2 + length
     return False
+
+
+# APP11 carries JUMBF, which is how C2PA travels; an APP1 XMP packet can name
+# the provenance chain instead. Ordinary EXIF is deliberately not in this set.
+_JPEG_PROVENANCE_MARKERS = frozenset({0xE1, 0xEB})
+_PROVENANCE_SIGNATURES = (b"jumbf", b"c2pa", b"contentauth", b"dcterms:provenance")
+
+
+def _jpeg_carries_provenance(blob: bytes, start: int) -> bool:
+    """Walk one JPEG's segments looking for a provenance payload."""
+    i = start + 2
+    limit = len(blob)
+    while i + 3 < limit and blob[i] == 0xFF:
+        marker = blob[i + 1]
+        if marker in _JPEG_SCAN_END:
+            return False
+        if 0xD0 <= marker <= 0xD8:
+            i += 2
+            continue
+        length = int.from_bytes(blob[i + 2 : i + 4], "big")
+        if length < 2:
+            return False
+        if marker in _JPEG_PROVENANCE_MARKERS:
+            payload = blob[i + 4 : i + 2 + length].lower()
+            if any(sig in payload for sig in _PROVENANCE_SIGNATURES):
+                return True
+        i += 2 + length
+    return False
+
+
+def embedded_provenance_present(data: bytes) -> bool:
+    """True when a JPEG inside *data* carries C2PA/JUMBF or provenance XMP.
+
+    inspect_pdf's byte scan skips stream payloads, so a manifest that lives only
+    inside an image XObject is invisible to it unless c2patool happens to be
+    installed. `auto` decides whether to re-distill from exactly that scan, so
+    without this a machine without c2patool would quietly leave embedded C2PA in
+    place -- the case this whole pass exists for.
+
+    Ordinary EXIF is not provenance and must not appear here: `auto` promises
+    not to spend a re-distill on camera and editor traces.
+    """
+    i = 0
+    while True:
+        start = data.find(b"\xff\xd8\xff", i)
+        if start < 0:
+            return False
+        if _jpeg_carries_provenance(data, start):
+            return True
+        i = start + 2
 
 
 def embedded_image_metadata_present(data: bytes) -> bool:
@@ -2143,10 +2212,10 @@ def clean_pdf(path: Path, dest: Path, *, deep_images: str = "auto") -> tuple[lis
         # The deep-image ladder below still runs -- Ghostscript reaches metadata
         # inside image XObjects on its own, and gating that on exiftool left the
         # only tool that can do that job unused.
-        stripped, n = _drop_tag_blocks(data, _XMP_PACKET_OPEN_RE, _XMP_PACKET_CLOSE_RE)
-        safe_write_bytes(dest, stripped if n else data)
+        blanked, n = _blank_xmp_packets(data)
+        safe_write_bytes(dest, blanked if n else data)
         if n:
-            actions.append(f"stripped XMP xpacket x{n} (degraded; may leave offsets broken)")
+            actions.append(f"blanked XMP xpacket x{n} (degraded; byte offsets preserved)")
             actions.append("warning: pure-stdlib PDF strip is best-effort; prefer exiftool")
             document_mode = "stdlib-xmp"
         else:
@@ -2161,8 +2230,12 @@ def clean_pdf(path: Path, dest: Path, *, deep_images: str = "auto") -> tuple[lis
     mode = deep_images
 
     def _markers_left() -> bool:
-        res_c2pa, res_ai, _f, _d = inspect_pdf(dest, dest.read_bytes())
-        return bool(res_c2pa or res_ai)
+        current = dest.read_bytes()
+        res_c2pa, res_ai, _f, _d = inspect_pdf(dest, current)
+        # inspect_pdf excludes stream payloads, so ask the streams directly too:
+        # without c2patool nothing else would notice a manifest that only exists
+        # inside an image.
+        return bool(res_c2pa or res_ai) or embedded_provenance_present(current)
 
     def _settle(ran: bool) -> None:
         # pdfwrite stamps its own /Producer, and exiftool edits PDFs

@@ -392,7 +392,84 @@ def test_the_deep_pass_runs_without_exiftool(tmp_path, monkeypatch):
     actions, meta = clean_pdf(src, tmp_path / "out.pdf", deep_images="always")
 
     assert meta["deep_image_pass"] is True
+    # Running is not the point; the fixture provenance being gone is.
+    assert b"contentauth" not in (tmp_path / "out.pdf").read_bytes()
     assert meta["degraded"] is True, "the document-level strip was still the stdlib one"
     assert meta["mode"] in ("stdlib-xmp", "copy")
     # The swap of one provenance stamp for another must not be silent.
     assert any("stamped its own /Producer" in a for a in actions)
+
+
+@needs_ghostscript
+def test_auto_sees_provenance_that_only_lives_in_a_stream(tmp_path, monkeypatch):
+    """`auto` must not need c2patool to notice a manifest inside an image.
+
+    inspect_pdf drops stream payloads before its marker scan, so with c2patool
+    absent the only signal left is the stream itself -- and `auto` decides
+    whether to re-distill from exactly that scan.
+    """
+    import container_meta
+
+    real_which = container_meta.which
+    monkeypatch.setattr(
+        container_meta,
+        "which",
+        lambda name: None if name == "c2patool" else real_which(name),
+    )
+
+    src = tmp_path / "in.pdf"
+    src.write_bytes(_pdf_with_image(_c2pa_like_jpeg()))
+    dest = tmp_path / "out.pdf"
+    _actions, meta = clean_pdf(src, dest, deep_images="auto")
+
+    assert meta["deep_image_pass"] is True
+    assert b"contentauth" not in dest.read_bytes()
+
+
+def test_provenance_detector_ignores_ordinary_exif():
+    """`auto` promises not to spend a re-distill on camera traces."""
+    import struct
+
+    import container_meta
+
+    exif = b"Exif\x00\x00MM\x00*" + b"\x00" * 32
+    app1 = b"\xff\xe1" + struct.pack(">H", len(exif) + 2) + exif
+    jpeg = _TINY_JPEG[:2] + app1 + _TINY_JPEG[2:]
+    pdf = _pdf_with_image(jpeg)
+
+    assert container_meta.embedded_image_metadata_present(pdf) is True
+    assert container_meta.embedded_provenance_present(pdf) is False
+
+
+@needs_exiftool
+def test_blanked_xmp_keeps_the_pdf_parseable(tmp_path, monkeypatch):
+    """The stdlib path must not shift byte offsets out from under the xref."""
+    import container_meta
+
+    real_which = container_meta.which
+    monkeypatch.setattr(
+        container_meta,
+        "which",
+        lambda name: None if name == "exiftool" else real_which(name),
+    )
+
+    xmp = (
+        b'<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+        b'<x:xmpmeta xmlns:x="adobe:ns:meta/"/><?xpacket end="w"?>'
+    )
+    src = tmp_path / "in.pdf"
+    src.write_bytes(
+        _minimal_pdf(b"<< /Producer (Claude) >>").replace(
+            b"deep image test", b"deep image test" + b" " * len(xmp)
+        )
+    )
+    # Put the packet in a place the xref does not describe, so only offsets
+    # after it would break: enough to catch a length-changing edit.
+    src.write_bytes(src.read_bytes().replace(b" " * len(xmp), xmp, 1))
+    dest = tmp_path / "out.pdf"
+
+    _actions, _meta = clean_pdf(src, dest, deep_images="never")
+
+    cleaned = dest.read_bytes()
+    assert len(cleaned) == src.stat().st_size, "blanking must not resize the file"
+    assert b"<?xpacket" not in cleaned
