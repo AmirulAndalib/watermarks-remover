@@ -2,8 +2,14 @@
 # Local test artifacts, secrets (.env), and tooling stay out without a rule
 # for each one. Tracked files are unaffected.
 /*
+!/.claude-plugin/
+!/.claude-plugin/**
+!/hooks/
+!/hooks/**
 !/.github/
 !/.github/**
+!/benchmarks/
+!/benchmarks/**
 !/docs/
 !/docs/**
 !/service/
@@ -12,9 +18,11 @@
 !/skills/remove-ai-marks/**
 !/tests/
 !/tests/**
+!/.coderabbit.yaml
 !/.dockerignore
 !/.env.example
 !/.gitignore
+!/.pre-commit-hooks.yaml
 !/CODE_OF_CONDUCT.md
 !/compose-check.sh
 !/compose.yaml

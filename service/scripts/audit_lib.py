@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from av_meta import inspect_av
 from common import CONFIDENCE_LEVELS, classify_finding_confidence
 from container_meta import inspect_container
 from format_dispatch import classify
@@ -46,8 +47,16 @@ def scan_file(
     if kind == "text":
         try:
             text = path.read_text(encoding="utf-8", errors="surrogateescape")
-        except OSError as e:
-            return {"path": name, "kind": "text", "error": str(e)}
+        except OSError:
+            # A file that could not be read is a FAILED SCAN, not a clean one:
+            # the old swallowed-error item carried no confidence key, so
+            # is_actionable answered False and every caller recorded the file
+            # as scanned-and-clean (the pre-commit hook returned 0; audit_dir
+            # never produced the EXIT_PARTIAL signal its wrapper exists for).
+            # Let the OSError propagate: audit_dir's _scan_worker and
+            # audit_website's wrapper already convert a raised exception into
+            # a files_skipped entry with EXIT_PARTIAL (#158).
+            raise
         report = inspect_text(text)
         findings, confidences, suspicious = text_findings(report)
         item: dict[str, Any] = {
@@ -82,6 +91,19 @@ def scan_file(
             "findings": report.findings,
             "confidence": [classify_finding_confidence(f) for f in report.findings],
             "notes": report.notes,
+        }
+
+    if kind == "av":
+        av_report = inspect_av(path)
+        return {
+            "path": name,
+            "kind": av_report.format,
+            "has_c2pa": av_report.has_c2pa,
+            "has_ai_metadata": av_report.has_ai_metadata,
+            "suspicious_total": 0,
+            "findings": av_report.findings,
+            "confidence": [classify_finding_confidence(f) for f in av_report.findings],
+            "notes": av_report.notes,
         }
 
     if kind == "unknown":
