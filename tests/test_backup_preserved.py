@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "service" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-import common  # noqa: E402
+import common
 
 
 def test_first_run_creates_backup_second_preserves_it(tmp_path):
