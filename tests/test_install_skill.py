@@ -65,6 +65,30 @@ def test_validate_rejects_non_spec_frontmatter_key(tmp_path):
         install_skill.validate_skill(skill)
 
 
+@pytest.mark.parametrize("opening", ["---invalid", "-- -", "  ---  x"])
+def test_validate_rejects_a_malformed_opening_delimiter(tmp_path, opening):
+    # startswith("---") alone accepted "---invalid" and treated it as the
+    # delimiter, so a malformed file parsed as if it had frontmatter.
+    skill = tmp_path / "demo-skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        f"{opening}\nname: demo-skill\ndescription: Demo.\n---\n\nBody.\n", encoding="utf-8"
+    )
+
+    with pytest.raises(install_skill.SkillError, match="does not start with YAML frontmatter"):
+        install_skill.validate_skill(skill)
+
+
+def test_validate_accepts_a_delimiter_line_with_trailing_whitespace(tmp_path):
+    skill = tmp_path / "demo-skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---  \nname: demo-skill\ndescription: Demo.\n---\n\nBody.\n", encoding="utf-8"
+    )
+
+    assert install_skill.validate_skill(skill)["name"] == "demo-skill"
+
+
 def test_validate_rejects_name_directory_mismatch(tmp_path):
     skill = _write_skill(tmp_path / "demo-skill", "name: other-skill\ndescription: Demo.")
 

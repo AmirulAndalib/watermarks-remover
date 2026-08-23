@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -151,24 +152,34 @@ def run_clean(path: Path) -> int:
             # Unrecognized format or oversized input; clean_file.py explained
             # why on stderr. Not this hook's problem — stay quiet.
             return EXIT_QUIET
-        if proc.returncode != 0 or not proc.stdout.strip():
-            eprint(
-                f"watermarks-remover: {path}: {proc.stderr.strip() or 'clean produced no output'}"
-            )
+
+        # clean_file.py returns 1 for two different things: a genuine failure,
+        # and a successful clean that left residual signals (a degraded PDF, an
+        # image whose C2PA scan still trips). They are told apart by whether it
+        # printed its JSON report, so parse first and judge on that — treating
+        # every exit 1 as failure threw away real cleans.
+        try:
+            result = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            result = None
+        if not isinstance(result, dict) or proc.returncode not in (0, 1):
+            detail = proc.stderr.strip() or "clean produced no usable report"
+            eprint(f"watermarks-remover: {path}: {detail}")
             return EXIT_HOOK_ERROR
 
         if temp_path.read_bytes() == path.read_bytes():
             return EXIT_QUIET
 
-        try:
-            result = json.loads(proc.stdout)
-        except json.JSONDecodeError:
-            result = {}
+        # mkstemp creates the temp file 0600; without this the swap would strip
+        # the original's permissions, silently de-executabling a script.
+        shutil.copymode(path, temp_path)
         os.replace(temp_path, path)
     finally:
         temp_path.unlink(missing_ok=True)
 
     summary = _describe(result)
+    if result.get("still_has_c2pa") or result.get("still_has_ai_metadata"):
+        summary += "; residual provenance signals may remain"
     _emit(
         f"watermarks-remover: cleaned {path.name} in place ({summary})",
         additional_context=(

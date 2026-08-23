@@ -71,9 +71,11 @@ def available_skills() -> list[str]:
 
 
 def _split_frontmatter(text: str) -> str:
-    if not text.startswith("---"):
+    # The opening delimiter is a line of its own: startswith("---") alone would
+    # accept "---invalid" and then silently treat that line as the delimiter.
+    first, _, rest = text.partition("\n")
+    if first.strip() != "---":
         raise SkillError("SKILL.md does not start with YAML frontmatter")
-    rest = text.split("\n", 1)[1] if "\n" in text else ""
     end = re.search(r"^---\s*$", rest, re.MULTILINE)
     if end is None:
         raise SkillError("SKILL.md frontmatter is not terminated by ---")

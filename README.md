@@ -62,7 +62,8 @@ Before writing anything, the installer validates the skill against the
 and the Skills API enforce: spec-only frontmatter (`name`, `description`,
 `license`, `compatibility`, `metadata`, `allowed-tools`), a lowercase hyphenated
 `name` of at most 64 characters matching the directory, a non-empty
-`description` of at most 1024 characters, and a payload under 30 MB.
+`description` of at most 1024 characters. The Cowork bundle additionally has
+to fit the 30 MB upload limit, which the packager enforces.
 
 ### Automatic cleaning via hook (deterministic)
 
@@ -1054,7 +1055,8 @@ make smoke                          # quick CLI smoke on fixtures
   top-level skill directory) because Cowork, cloud, and routine sessions load
   the skills enabled for the claude.ai account rather than `~/.claude/skills`.
   Every target validates the skill against the Agent Skills packaging rules
-  (spec-only frontmatter, name/description limits, 30 MB cap) before writing.
+  (spec-only frontmatter, name/description limits) before writing, plus the
+  30 MB upload limit for the Cowork bundle.
   New `make` targets: `install-claude-code-skill`,
   `install-claude-code-text-skill`, `install-claude-project-skill`,
   `package-cowork-skill`, `package-cowork-text-skill`.

@@ -26,7 +26,10 @@ EXIT_SHOW_MODEL = 2
 
 def run_hook(payload, *args: str, env: dict[str, str] | None = None):
     full_env = os.environ.copy()
+    # Both mode sources have to be cleared, or an ambient plugin option would
+    # silently decide what mode these tests exercise.
     full_env.pop("WATERMARKS_HOOK_MODE", None)
+    full_env.pop("CLAUDE_PLUGIN_OPTION_HOOK_MODE", None)
     full_env.update(env or {})
     return subprocess.run(
         [sys.executable, str(HOOK), *args],
@@ -230,3 +233,98 @@ def test_oversized_file_is_skipped_rather_than_scanned(tmp_path, marked_file):
 
     assert result.returncode == EXIT_QUIET
     assert result.stdout == ""
+
+
+# --------------------------------------------------------------------------
+# clean-mode contract with clean_file.py
+# --------------------------------------------------------------------------
+
+
+def _fake_cleaner(tmp_path: Path, body: str) -> Path:
+    """A stand-in for clean_file.py, so exit codes can be exercised directly."""
+    script = tmp_path / "fake_clean.py"
+    script.write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "out = sys.argv[sys.argv.index('-o') + 1]\n"
+        "Path(out).write_text('cleaned\\n', encoding='utf-8')\n" + body,
+        encoding="utf-8",
+    )
+    return script
+
+
+def test_exit_one_with_a_report_is_a_clean_that_left_residual_signals(tmp_path, monkeypatch):
+    # clean_file.py returns 1 both for failure and for "cleaned, residual
+    # signals remain". Treating every 1 as failure threw away real cleans.
+    sys.path.insert(0, str(ROOT / "service" / "scripts"))
+    import hook_written_file
+
+    target = tmp_path / "doc.md"
+    target.write_bytes(MARKED.read_bytes())
+    monkeypatch.setattr(
+        hook_written_file,
+        "CLEAN_FILE_PY",
+        _fake_cleaner(
+            tmp_path,
+            'print(\'{"kind": "container", "still_has_c2pa": true}\')\nsys.exit(1)\n',
+        ),
+    )
+
+    assert hook_written_file.run_clean(target) == EXIT_QUIET
+    assert target.read_text(encoding="utf-8") == "cleaned\n"
+
+
+def test_exit_one_without_a_report_is_a_failure_and_leaves_the_file_alone(tmp_path, monkeypatch):
+    sys.path.insert(0, str(ROOT / "service" / "scripts"))
+    import hook_written_file
+
+    target = tmp_path / "doc.md"
+    original = MARKED.read_bytes()
+    target.write_bytes(original)
+    monkeypatch.setattr(
+        hook_written_file,
+        "CLEAN_FILE_PY",
+        _fake_cleaner(tmp_path, "sys.stderr.write('boom\\n')\nsys.exit(1)\n"),
+    )
+
+    assert hook_written_file.run_clean(target) == EXIT_HOOK_ERROR
+    assert target.read_bytes() == original
+
+
+def test_unparseable_report_is_rejected_rather_than_guessed_at(tmp_path, monkeypatch):
+    sys.path.insert(0, str(ROOT / "service" / "scripts"))
+    import hook_written_file
+
+    target = tmp_path / "doc.md"
+    original = MARKED.read_bytes()
+    target.write_bytes(original)
+    monkeypatch.setattr(
+        hook_written_file,
+        "CLEAN_FILE_PY",
+        _fake_cleaner(tmp_path, "print('not json')\nsys.exit(0)\n"),
+    )
+
+    assert hook_written_file.run_clean(target) == EXIT_HOOK_ERROR
+    assert target.read_bytes() == original
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits")
+@pytest.mark.parametrize("mode", [0o644, 0o755])
+def test_clean_preserves_the_files_permissions(tmp_path, mode):
+    # The swap goes through mkstemp, which creates 0600; without copying the
+    # mode across, cleaning a script would quietly strip its execute bit.
+    target = tmp_path / "script.md"
+    target.write_bytes(MARKED.read_bytes())
+    target.chmod(mode)
+
+    result = run_hook(write_event(target), "--mode", "clean")
+
+    assert result.returncode == EXIT_QUIET
+    assert target.stat().st_mode & 0o777 == mode
+    assert "​" not in target.read_text(encoding="utf-8")
+
+
+def test_plugin_option_sets_the_mode_like_the_env_var(marked_file):
+    result = run_hook(write_event(marked_file), env={"CLAUDE_PLUGIN_OPTION_HOOK_MODE": "clean"})
+
+    assert result.returncode == EXIT_QUIET
+    assert "​" not in marked_file.read_text(encoding="utf-8")
