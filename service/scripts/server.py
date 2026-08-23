@@ -115,6 +115,7 @@ def _ghostscript_usable() -> bool:
             timeout=10,
             check=False,
             preexec_fn=subprocess_preexec_fn,
+            creationflags=subprocess_creationflags,
         )
         return r.returncode == 0
     except Exception:
