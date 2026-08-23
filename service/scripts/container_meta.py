@@ -25,6 +25,7 @@ from common import (
     safe_arg,
     safe_write_bytes,
     safe_write_text,
+    subprocess_creationflags,
     subprocess_preexec_fn,
     which,
 )
@@ -1884,6 +1885,7 @@ def _pdf_structural_rewrite(
             timeout=(_QPDF_TIMEOUT if deadline is None else deadline.timeout(_QPDF_TIMEOUT)),
             check=False,
             preexec_fn=subprocess_preexec_fn,
+            creationflags=subprocess_creationflags,
         )
     except Exception as e:
         tmp.unlink(missing_ok=True)
@@ -2059,6 +2061,7 @@ def _exiftool_strip(
             ),
             check=False,
             preexec_fn=subprocess_preexec_fn,
+            creationflags=subprocess_creationflags,
         )
         actions.append(f"exiftool -all= (rc={r.returncode})")
     except Exception as e:
@@ -2146,6 +2149,7 @@ def _run_ghostscript(
             ),
             check=False,
             preexec_fn=subprocess_preexec_fn,
+            creationflags=subprocess_creationflags,
         )
     except Exception as e:
         actions.append(f"ghostscript deep image pass failed: {e}")
