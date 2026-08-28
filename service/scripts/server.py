@@ -727,7 +727,7 @@ def _detect_payload(data: bytes, name: str) -> dict[str, Any]:
             detections.append({"detector": "stylometry", "available": True, **s_rep.to_dict()})
             return {"ok": True, "kind": kind, "detections": detections}
         elif kind == "image":
-            score = run_synthid_score(path)
+            score = run_synthid_score(path, data=data)
             if score is None:
                 score = {
                     "detector": "synthid",
