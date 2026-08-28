@@ -1739,8 +1739,11 @@ def run_ctrlregen_clean(
 def inspect_image(
     path: Path,
     synthid_dir: str | None = None,
+    *,
+    data: bytes | None = None,
 ) -> ImageInspectReport:
-    data = path.read_bytes()
+    if data is None:
+        data = path.read_bytes()
     fmt = detect_format(data)
     if fmt == "png":
         has_c2pa, has_ai, findings = inspect_png(data)

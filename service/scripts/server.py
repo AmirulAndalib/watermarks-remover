@@ -693,11 +693,11 @@ def _inspect_payload(data: bytes, name: str, run_detect: bool) -> dict[str, Any]
             if run_detect:
                 report["text_detectors"] = run_all_text_detectors(raw_text)
         elif kind == "image":
-            report = inspect_image(path).to_dict()
+            report = inspect_image(path, data=data).to_dict()
         elif kind == "av":
-            report = inspect_av(path).to_dict()
+            report = inspect_av(path, data=data).to_dict()
         else:
-            report = inspect_container(path).to_dict()
+            report = inspect_container(path, data=data).to_dict()
     detected_wm = any(
         entry.get("available") and entry.get("is_watermarked")
         for entry in report.get("text_detectors") or []
@@ -746,11 +746,11 @@ def _detect_payload(data: bytes, name: str) -> dict[str, Any]:
                 "ok": True,
                 "kind": kind,
                 "detections": [],
-                "report": inspect_av(path).to_dict(),
+                "report": inspect_av(path, data=data).to_dict(),
             }
         else:
             detections = []
-            report = inspect_container(path).to_dict()
+            report = inspect_container(path, data=data).to_dict()
             return {
                 "ok": True,
                 "kind": kind,

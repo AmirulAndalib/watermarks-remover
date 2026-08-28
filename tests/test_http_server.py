@@ -446,3 +446,19 @@ def test_log_message_includes_readable_timestamp(monkeypatch):
         lines[0],
     )
     assert lines[0].endswith('"GET /health HTTP/1.1" 200 -')
+
+
+def test_inspect_image_uses_passed_bytes_not_a_reread(tmp_path: Path):
+    """§4 read-dedup: when data= is passed, the stdlib parse uses those bytes
+    instead of re-reading the path. An empty file on disk (which would parse as
+    'unknown') paired with real PNG bytes proves the file was not re-read."""
+    import image_meta
+
+    png = _watermarked_png()
+    empty = tmp_path / "empty.png"
+    empty.write_bytes(b"")
+
+    rep = image_meta.inspect_image(empty, data=png)
+    assert rep.format == "png"
+    # The C2PA/AI marker lives only in the passed bytes, so the stdlib scan sees it.
+    assert rep.has_c2pa or rep.has_ai_metadata
