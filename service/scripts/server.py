@@ -53,6 +53,7 @@ from urllib.parse import urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from av_meta import clean_av, inspect_av
+from clean_audio import audio_purify, is_audio_format, is_audio_name, media_has_video
 from clean_video import video_purify
 from common import (
     MAX_INPUT_BYTES,
@@ -90,6 +91,7 @@ ALLOWED_CLEAN_OPTIONS = {
     "keep_non_ai_metadata": bool,
     "also_layer_a_text": bool,
     "remove_pixel": str,
+    "remove_audio_watermark": bool,
     "strip_all_metadata": bool,
     "detect_before": bool,
     "detect_after": bool,
@@ -833,7 +835,41 @@ def _clean_payload(data: bytes, name: str, options: dict[str, Any]) -> dict[str,
             if remove_pixel not in (None, "ctrlregen", "diffusion"):
                 raise ValueError("remove_pixel must be one of: ctrlregen, diffusion")
             result = clean_av(src, dest, strip_all_metadata=strip_all)
-            if remove_pixel:
+            # Only run the audio chain on audio-only media. WAV/MP3/FLAC are
+            # definitive audio containers (no video stream possible); the
+            # MP4-family/OGG audio names (.m4a/.aac/.ogg/.opus) could be a
+            # mislabeled video, so only treat those as audio when a stream probe
+            # confirms there is no video track (an inconclusive probe is not
+            # "no video", to avoid dropping a video track via the -vn re-encode).
+            definitely_audio = is_audio_format(result.get("format", ""))
+            is_audio = definitely_audio or (is_audio_name(name) and media_has_video(src) is False)
+            if is_audio and options.get("remove_audio_watermark"):
+                audio_dest = _tmp_path(tmpdir, "out.m4a")
+                audio_res = audio_purify(dest, audio_dest)
+                result["audio_mark_removal"] = audio_res
+                if audio_res.get("available"):
+                    dest = audio_dest
+                    result["actions"].append(
+                        f"destructive audio watermark chain (tempo {audio_res.get('tempo')}x, "
+                        f"{audio_res.get('pitch_semitones'):+.1f} semitones, "
+                        f"{audio_res.get('codec')})"
+                    )
+                    # The chain re-encodes to M4A, so the metadata-clean report
+                    # fields are stale; recompute them from the final file and
+                    # reflect the new container, not the source format.
+                    after = inspect_av(dest)
+                    result["format"] = after.format
+                    result["bytes_out"] = dest.stat().st_size
+                    result["changed"] = True
+                    result["still_has_c2pa"] = after.has_c2pa
+                    result["still_has_ai_metadata"] = after.has_ai_metadata
+                    result["post_findings"] = after.findings
+                else:
+                    result["actions"].append(
+                        "destructive audio watermark chain skipped: "
+                        f"{audio_res.get('error', 'unknown error')}"
+                    )
+            elif remove_pixel:
                 pix = video_purify(dest, dest, remove_pixel=remove_pixel)
                 result["pixel_removal"] = pix
                 engine = "CtrlRegen" if remove_pixel == "ctrlregen" else "DiffusionPurification"
