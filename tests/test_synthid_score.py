@@ -286,9 +286,7 @@ def test_synthid_http_uses_passed_data_not_a_reread(
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
     missing = tmp_path / "never-created.png"
-    res = image_meta._synthid_score_http(
-        missing, "http://sidecar.local", "", 1.0, data=b"PNGBYTES"
-    )
+    res = image_meta._synthid_score_http(missing, "http://sidecar.local", "", 1.0, data=b"PNGBYTES")
 
     assert res == {"available": True, "score": 0.1}
     sent = json.loads(captured["body"].decode("utf-8"))
