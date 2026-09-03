@@ -358,6 +358,13 @@ APIs unless you ask it to:
 - **`/clean`** accepts `"detect_before"` / `"detect_after"` options to
   score the input and the cleaned output, so you can measure what a clean
   actually changed.
+- **`/clean`** runs the Layer B text rewrite after Layer A **by default** (it
+  is a required step for text). A **`"strategy"`** option (an ordered
+  `tactic@intensity` list, e.g. `"paraphrase@0.8,mlm@0.2"`) overrides the
+  default from the strategy config file (see below). When the rewrite
+  backend/model for a step isn't configured, `/clean` returns a 400.
+
+Text detectors (see `/capabilities` → `text_detectors`):
 
 Text detectors (see `/capabilities` → `text_detectors`):
 
@@ -416,7 +423,12 @@ Checks `wr-core` via `GET /health` and runs each harness/heavy service with `--h
 
 ### Configuration (env vars for docker compose)
 
-**Nothing is required to clean arbitrary text** — the core service works out of the box:
+**Text cleaning requires Layer B configuration** — the Layer B rewrite is a
+required step for `POST /clean` on text, so the core service needs the rewrite
+backend set up, or text cleaning returns HTTP 400. Image/container metadata
+cleaning works out of the box. For text you must configure the Layer B strategy
+dependencies: `transformers` + `roberta-large` (for the default `mlm` step) and
+the `WATERMARKS_REWRITE_*` LLM config (for the `paraphrase` step):
 
 ```bash
 echo "Hello\u200bWorld\u00ad!" > /tmp/sample.txt
@@ -457,9 +469,11 @@ set -a; . ./.env; set +a; python3 service/scripts/rewrite_text.py /tmp/x.txt -o 
 | `WATERMARKS_REWRITE_API_KEY` | `rewrite_text.py` hook | API key — env only, never on argv |
 | `WATERMARKS_REWRITE_ALLOW_REMOTE` | `rewrite_text.py` hook | `1` to allow non-loopback endpoints |
 | `WATERMARKS_REWRITE_REASONING_EFFORT` | `rewrite_text.py` hook | `none` (default) / `low` / `medium` / `high` / `off` |
+| `WATERMARKS_CLEAN_STRATEGY_FILE` | `server.py` `/clean` | Path to the Layer B strategy config JSON (default `config/clean_strategy.json`) |
 | `WATERMARKS_GUMBEL_KEY` | `detect_gumbel.py` / `text_detectors.py` | Secret key for keyed-Gumbel (EXP) same-key replay (e.g. `0x…`); preferred over argv — never logged |
 
-Layer B is agent-orchestrated in the skill (it rewrites with its own model), so the `WATERMARKS_REWRITE_*` vars are only needed when driving `rewrite_text.py` directly.
+**Layer B is required for text cleaning.** `/clean` always applies the default
+strategy (from `config/clean_strategy.json`, `{"default_strategy": "paraphrase@0.8,mlm@0.2"}`) to a text file after Layer A, unless the request passes its own `"strategy"` option (an ordered `tactic@intensity` list). A strategy step is `tactic@intensity`; the `mlm` step needs `transformers` + `roberta-large`, and any LLM step (`paraphrase`, `humanize`, …) needs the `WATERMARKS_REWRITE_*` config. If the required backend/model isn't configured — or no strategy is available — `/clean` **rejects the request with a 400**. Precedence for the config path: `--strategy-config` CLI flag > `WATERMARKS_CLEAN_STRATEGY_FILE` env var > the default `config/clean_strategy.json`.
 
 Images publish automatically on `v*` tags via [`.github/workflows/release-images.yml`](.github/workflows/release-images.yml).
 
